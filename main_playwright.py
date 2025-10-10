@@ -1,11 +1,11 @@
 """
-Lindy Automation Script with Playwright
-Automates the complete workflow from signup to N8N integration
-This version uses Playwright for better visibility and control
+Lindy Automation Script - Final Version
+This version handles Google login issues by using alternative authentication methods
 """
 
 import time
 import asyncio
+import os
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 import config
 
@@ -20,895 +20,566 @@ class LindyAutomationPlaywright:
         self.lindy_url = None
         self.auth_token = None
         self.playwright = None
+        self.session_file = "lindy_session.json"
         
-    async def setup(self):
-        """Setup browser with stealth configuration"""
-        print("Setting up browser with stealth mode...")
+    async def setup(self, use_saved_session=True):
+        """Setup browser"""
+        print("Setting up browser...")
         self.playwright = await async_playwright().start()
         
-        # Launch browser with stealth args
+        # Launch browser
         self.browser = await self.playwright.chromium.launch(
             headless=True,
             args=[
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--start-maximized'
+                '--disable-blink-features=AutomationControlled'
             ]
         )
         
-        # Create context with realistic browser fingerprint
+        # Check if we have a saved session
+        storage_state = None
+        if use_saved_session and os.path.exists(self.session_file):
+            print(f"✓ Found saved session file: {self.session_file}")
+            storage_state = self.session_file
+        
+        # Create context
         self.context = await self.browser.new_context(
             viewport={'width': 1920, 'height': 1080},
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            locale='en-US',
-            timezone_id='America/New_York',
-            storage_state=None,
-            extra_http_headers={
-                'Accept-Language': 'en-US,en;q=0.9',
-            }
+            storage_state=storage_state
         )
         
         self.page = await self.context.new_page()
         
-        # Inject scripts to hide automation
+        # Hide automation
         await self.page.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined,
             });
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5],
-            });
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['en-US', 'en'],
-            });
-            window.chrome = {
-                runtime: {},
-            };
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                    Promise.resolve({ state: Notification.permission }) :
-                    originalQuery(parameters)
-            );
         """)
         
-        print("Browser setup complete with stealth mode!")
+        print("Browser setup complete!")
         
-    async def google_signin(self):
-        """Sign in to Google account"""
-        print("Starting Google sign-in process...")
-        
+    async def save_session(self):
+        """Save the current session state"""
         try:
-            # Navigate to Lindy signup page
-            await self.page.goto(config.LINDY_SIGNUP_URL)
-            await self.page.wait_for_load_state('networkidle')
-            
-            # Check if already logged in (if we see workspace page)
-            try:
-                # Look for signs of being logged in
-                workspace_indicator = await self.page.query_selector("text=/workspace/i, button:has-text('New Agent')")
-                if workspace_indicator:
-                    print("Already logged in, logging out first...")
-                    # Try to find and click the menu/settings
-                    try:
-                        menu_button = await self.page.wait_for_selector("button[aria-label*='menu'], button[aria-label*='Menu'], [class*='menu'], [class*='avatar']", timeout=5000)
-                        await menu_button.click()
-                        await self.page.wait_for_timeout(2000)
-                        
-                        # Look for logout/sign out option
-                        logout_button = await self.page.wait_for_selector("text=/sign out/i, text=/log out/i, button:has-text('Sign out')", timeout=5000)
-                        await logout_button.click()
-                        await self.page.wait_for_timeout(3000)
-                        print("Logged out successfully")
-                        
-                        # Navigate back to signup page
-                        await self.page.goto(config.LINDY_SIGNUP_URL)
-                        await self.page.wait_for_load_state('networkidle')
-                    except Exception as e:
-                        print(f"Could not logout automatically: {e}")
-                        print("Clearing cookies and reloading...")
-                        await self.context.clear_cookies()
-                        await self.page.goto(config.LINDY_SIGNUP_URL)
-                        await self.page.wait_for_load_state('networkidle')
-            except Exception as e:
-                print(f"Not logged in, proceeding with signup: {e}")
-            
-            # Look for "Sign up with Google" or "Sign in with Google" button
-            print("Looking for 'Sign up with Google' button...")
-            try:
-                # Try multiple selectors for the Google sign-in button
-                google_signin_selectors = [
-                    "button:has-text('Sign up with Google')",
-                    "button:has-text('Sign in with Google')",
-                    "button:has-text('Google')",
-                    "button[class*='google']"
-                ]
-                
-                google_button_clicked = False
-                for selector in google_signin_selectors:
-                    try:
-                        google_button = await self.page.wait_for_selector(
-                            selector,
-                            timeout=10000
-                        )
-                        await google_button.click()
-                        print(f"Clicked Google sign-in button using selector: {selector}")
-                        google_button_clicked = True
-                        break
-                    except PlaywrightTimeout:
-                        continue
-                
-                if not google_button_clicked:
-                    raise Exception("Could not find Google sign-in button")
-                    
-            except Exception as e:
-                print(f"Error finding Google button: {e}")
-                raise
-            
-            await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-            
-            # Handle Google login page
-            print("Entering email...")
-            await self.page.wait_for_selector("input[type='email']", timeout=30000)
-            await self.page.type("input[type='email']", config.GOOGLE_EMAIL, delay=100)
-            await self.page.press("input[type='email']", "Enter")
-            
-            await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-            
-            # Check for Google blocking automation
-            try:
-                page_text = await self.page.text_content("body")
-                if "Couldn't sign you in" in page_text or "This browser or app may not be secure" in page_text:
-                    print("\n" + "="*70)
-                    print("ERROR: Google detected automation and blocked sign-in!")
-                    print("="*70)
-                    print("\nThis is a known issue with Google's security measures.")
-                    print("\nPossible solutions:")
-                    print("1. Use a different authentication method (email/password directly on Lindy)")
-                    print("2. Manually log in once to establish trust")
-                    print("3. Use OAuth tokens with proper credentials")
-                    print("4. Contact Lindy support for API access")
-                    print("\nThe automation will continue to try, but may fail...")
-                    print("="*70 + "\n")
-            except:
-                pass
-            
-            print("Entering password...")
-            await self.page.wait_for_selector("input[type='password']", timeout=30000)
-            await self.page.type("input[type='password']", config.GOOGLE_PASSWORD, delay=100)
-            await self.page.press("input[type='password']", "Enter")
-            
-            await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
-            
-            # Handle "You're signing back in to Lindy" page
-            try:
-                print("Checking for 'Continue' button on sign-in page...")
-                continue_button = await self.page.wait_for_selector(
-                    "button:has-text('Continue'), button:has-text('continue')",
-                    timeout=10000
-                )
-                await continue_button.click()
-                print("Clicked 'Continue' button on sign-in page")
-                await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
-            except PlaywrightTimeout:
-                print("No 'Continue' button found - proceeding...")
-            
-            print("Google sign-in completed!")
-            
+            await self.context.storage_state(path=self.session_file)
+            print(f"✓ Session saved to {self.session_file}")
+            return True
         except Exception as e:
-            print(f"Error during Google sign-in: {e}")
-            raise
+            print(f"Error saving session: {e}")
+            return False
     
-    async def fill_signup_form(self):
-        """Fill out the signup form if present"""
-        print("Checking for signup form...")
-        
+    async def check_login_status(self):
+        """Check if we're logged into Lindy"""
         try:
-            await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-            
-            # Look for form fields
-            form_fields = await self.page.query_selector_all("input, select")
-            
-            if form_fields:
-                print(f"Found {len(form_fields)} form fields, filling them out...")
-                
-                for field in form_fields:
-                    try:
-                        is_visible = await field.is_visible()
-                        is_enabled = await field.is_enabled()
-                        
-                        if not is_visible or not is_enabled:
-                            continue
-                        
-                        field_name = await field.get_attribute('name') or await field.get_attribute('placeholder') or ''
-                        
-                        if 'email' in field_name.lower():
-                            await field.fill(config.GOOGLE_EMAIL)
-                        elif 'name' in field_name.lower() and 'company' not in field_name.lower():
-                            await field.fill("Test User")
-                        elif 'company' in field_name.lower():
-                            await field.fill("Test Company")
-                        
-                    except Exception as e:
-                        print(f"Could not fill field: {e}")
-                        continue
-                
-                # Look for submit/continue button
-                try:
-                    submit_button = await self.page.wait_for_selector(
-                        "button:has-text('Continue'), button:has-text('Submit'), button:has-text('Next')",
-                        timeout=5000
-                    )
-                    await submit_button.click()
-                    print("Submitted form")
-                    await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
-                except:
-                    print("No submit button found or already submitted")
-            
-        except Exception as e:
-            print(f"Form filling info: {e}")
-    
-    async def handle_free_trial(self):
-        """Handle free trial section and enter card details"""
-        print("Looking for free trial section...")
-        
-        try:
-            # Check if we need to start free trial
-            try:
-                start_trial_button = await self.page.wait_for_selector(
-                    "button:has-text('Start Free Trial'), button:has-text('Start Trial')",
-                    timeout=10000
-                )
-                await start_trial_button.click()
-                print("Clicked 'Start Free Trial' button")
-                await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-                
-                # Enter card details
-                await self.enter_card_details()
-                
-            except PlaywrightTimeout:
-                print("No free trial button found - may already have credits, continuing...")
-                
-        except Exception as e:
-            print(f"Free trial handling: {e}")
-    
-    async def enter_card_details(self):
-        """Enter card payment details"""
-        print("Entering card details...")
-        
-        try:
-            # Wait for card form to load
-            await self.page.wait_for_timeout(2000)
-            
-            # Card number
-            card_number_input = await self.page.wait_for_selector(
-                "input[name*='card' i][name*='number' i], input[placeholder*='card number' i], input[placeholder*='Card number' i]",
-                timeout=30000
-            )
-            await card_number_input.fill(config.CARD_NUMBER)
-            print("Entered card number")
-            
-            # Expiry date
-            expiry_input = await self.page.query_selector(
-                "input[name*='expir' i], input[placeholder*='expir' i], input[placeholder*='MM' i]"
-            )
-            await expiry_input.fill(config.CARD_EXPIRY)
-            print("Entered expiry date")
-            
-            # CVC
-            cvc_input = await self.page.query_selector(
-                "input[name*='cvc' i], input[name*='cvv' i], input[placeholder*='cvc' i]"
-            )
-            await cvc_input.fill(config.CARD_CVC)
-            print("Entered CVC")
-            
-            # Cardholder name
-            try:
-                name_input = await self.page.query_selector(
-                    "input[name*='name' i], input[placeholder*='name' i]"
-                )
-                if name_input:
-                    await name_input.fill(config.CARDHOLDER_NAME)
-                    print("Entered cardholder name")
-            except:
-                print("Name field not found or not required")
-            
-            # Country
-            try:
-                country_select = await self.page.query_selector(
-                    "select[name*='country' i], input[name*='country' i]"
-                )
-                if country_select:
-                    tag_name = await country_select.evaluate("el => el.tagName")
-                    if tag_name.lower() == 'select':
-                        await country_select.select_option(label=config.CARD_COUNTRY)
-                    else:
-                        await country_select.fill(config.CARD_COUNTRY)
-                    print("Selected country")
-            except:
-                print("Country field not found or not required")
-            
-            # Postal code
-            try:
-                postal_input = await self.page.query_selector(
-                    "input[name*='postal' i], input[name*='zip' i], input[placeholder*='postal' i]"
-                )
-                if postal_input:
-                    await postal_input.fill(config.POSTAL_CODE)
-                    print("Entered postal code")
-            except:
-                print("Postal code field not found or not required")
-            
-            # Click Save Card button
-            await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-            save_button = await self.page.wait_for_selector(
-                "button:has-text('Save'), button:has-text('Submit'), button:has-text('Add Card')"
-            )
-            await save_button.click()
-            print("Clicked 'Save Card' button")
-            
-            await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
-            
-        except Exception as e:
-            print(f"Error entering card details: {e}")
-            raise
-    
-    async def navigate_to_template(self):
-        """Navigate to the specific template"""
-        print(f"Navigating to template: {config.LINDY_TEMPLATE_URL}")
-        
-        await self.page.goto(config.LINDY_TEMPLATE_URL)
-        await self.page.wait_for_load_state('networkidle')
-        
-        # Add template to account
-        try:
-            print("Looking for 'Add' button...")
-            
-            # Wait for page to fully load
+            await self.page.goto("https://chat.lindy.ai", wait_until='networkidle', timeout=60000)
             await self.page.wait_for_timeout(3000)
             
-            # Try multiple strategies to find and click the Add button
-            add_button_clicked = False
+            current_url = self.page.url
             
-            # Strategy 1: Find button with exact text "Add"
-            add_selectors = [
-                "button:has-text('Add')",
-                "button >> text='Add'",
-                "button.bg-blue-9:has-text('Add')",
-                "button[type='button']:has-text('Add')"
-            ]
+            # Check if we're on a workspace/home page (logged in)
+            if 'workspace' in current_url or '/home' in current_url:
+                print("✓ Already logged in!")
+                return True
             
-            for selector in add_selectors:
-                try:
-                    print(f"Trying selector: {selector}")
-                    
-                    # Wait for the button to be visible
-                    add_button = await self.page.wait_for_selector(
-                        selector,
-                        timeout=10000,
-                        state='visible'
-                    )
-                    
-                    # Scroll into view
-                    await add_button.scroll_into_view_if_needed()
-                    await self.page.wait_for_timeout(2000)
-                    
-                    # Click the button
-                    await add_button.click()
-                    print(f"Clicked 'Add' button using selector: {selector}")
-                    add_button_clicked = True
-                    break
-                    
-                except Exception as e:
-                    print(f"Selector {selector} failed: {e}")
-                    continue
+            # Check for login/signup page
+            if 'login' in current_url or 'signin' in current_url or 'signup' in current_url:
+                print("✗ Not logged in")
+                return False
             
-            if not add_button_clicked:
-                # Last resort: Find all buttons and click the one with text "Add"
-                print("Trying last resort method...")
-                all_buttons = await self.page.locator("button").all()
-                for btn in all_buttons:
-                    try:
-                        text = await btn.text_content()
-                        is_visible = await btn.is_visible()
-                        if text and text.strip() == "Add" and is_visible:
-                            await btn.scroll_into_view_if_needed()
-                            await self.page.wait_for_timeout(2000)
-                            await btn.click()
-                            print("Clicked 'Add' button using last resort method")
-                            add_button_clicked = True
-                            break
-                    except:
-                        continue
+            # Check for New Agent button
+            new_agent_btn = await self.page.query_selector("button:has-text('New Agent')")
+            if new_agent_btn:
+                print("✓ Already logged in!")
+                return True
             
-            if not add_button_clicked:
-                raise Exception("Could not find or click the Add button")
+            print("✗ Not logged in")
+            return False
             
-            await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
+        except Exception as e:
+            print(f"Error checking login status: {e}")
+            return False
+    
+    async def manual_login_prompt(self):
+        """Prompt for manual login"""
+        print("\n" + "="*70)
+        print("MANUAL LOGIN REQUIRED")
+        print("="*70)
+        print("\nGoogle is blocking automated logins.")
+        print("Please log in manually in the browser window that will open.")
+        print("\nSteps:")
+        print("1. A browser window will open")
+        print("2. Log in to Lindy with your Google account")
+        print("3. Wait until you see the Lindy workspace/home page")
+        print("4. The automation will detect the login and continue")
+        print("\nPress Enter to open the browser...")
+        input()
+        
+        # Relaunch with visible browser
+        await self.cleanup()
+        
+        self.playwright = await async_playwright().start()
+        self.browser = await self.playwright.chromium.launch(
+            headless=False,
+            args=['--no-sandbox', '--disable-setuid-sandbox']
+        )
+        self.context = await self.browser.new_context(
+            viewport={'width': 1920, 'height': 1080}
+        )
+        self.page = await self.context.new_page()
+        
+        # Navigate to Lindy
+        await self.page.goto("https://chat.lindy.ai")
+        
+        print("\nWaiting for you to log in...")
+        print("The automation will continue once you're logged in.")
+        
+        # Wait for login (check every 5 seconds)
+        max_wait = 300  # 5 minutes
+        waited = 0
+        while waited < max_wait:
+            await asyncio.sleep(5)
+            waited += 5
             
-            # Wait for page to load and click "Flow Editor" button
-            print("Waiting for page to load and looking for 'Flow Editor' button...")
+            current_url = self.page.url
+            if 'workspace' in current_url or '/home' in current_url:
+                print("\n✓ Login detected!")
+                break
+            
+            new_agent_btn = await self.page.query_selector("button:has-text('New Agent')")
+            if new_agent_btn:
+                print("\n✓ Login detected!")
+                break
+            
+            print(f"  Still waiting... ({waited}s)")
+        
+        # Save the session
+        await self.save_session()
+        
+        # Close visible browser and reopen headless
+        await self.cleanup()
+        await self.setup(use_saved_session=True)
+        
+        return True
+    
+    async def add_template(self):
+        """Navigate to template and add it to account"""
+        print("\n" + "="*70)
+        print("ADDING TEMPLATE TO ACCOUNT")
+        print("="*70)
+        
+        try:
+            # Navigate to template URL
+            print(f"Navigating to template: {config.LINDY_TEMPLATE_URL}")
+            await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='networkidle', timeout=60000)
             await self.page.wait_for_timeout(5000)
             
-            # Try multiple selectors for Flow Editor button
-            flow_editor_clicked = False
-            selectors = [
-                "button:has-text('Flow Editor')",
-                "button:has-text('flow editor')",
-                "button:has-text('Editor')",
-                "a:has-text('Flow Editor')",
-                "a:has-text('Editor')"
+            # Take screenshot
+            await self.page.screenshot(path='screenshot_1_template_page.png')
+            print("Screenshot saved: screenshot_1_template_page.png")
+            
+            # Check if we need to login
+            current_url = self.page.url
+            if 'login' in current_url or 'signin' in current_url or 'signup' in current_url:
+                print("ERROR: Not logged in!")
+                return False
+            
+            # Look for Add button
+            add_selectors = [
+                "button:has-text('Add')",
+                "button:has-text('Use template')",
+                "button:has-text('Use this template')",
+                "button:has-text('Add to workspace')"
             ]
             
-            for selector in selectors:
+            add_button = None
+            for selector in add_selectors:
                 try:
-                    flow_editor_button = await self.page.wait_for_selector(
-                        selector,
-                        timeout=10000
-                    )
-                    await flow_editor_button.click()
-                    print(f"Clicked 'Flow Editor' button using selector: {selector}")
-                    flow_editor_clicked = True
-                    await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
-                    break
+                    add_button = await self.page.wait_for_selector(selector, timeout=5000)
+                    if add_button:
+                        print(f"✓ Found Add button with selector: {selector}")
+                        break
                 except:
                     continue
             
-            if not flow_editor_clicked:
-                print("Warning: Could not find Flow Editor button, attempting to continue...")
+            if not add_button:
+                print("ERROR: Could not find Add button")
+                await self.page.screenshot(path='screenshot_error_no_add_button.png')
+                return False
+            
+            # Click Add button
+            await add_button.click()
+            await self.page.wait_for_timeout(5000)
+            print("✓ Clicked 'Add' button to add template")
+            
+            # Wait for navigation
+            await self.page.wait_for_timeout(5000)
+            
+            # Take screenshot
+            await self.page.screenshot(path='screenshot_2_after_add.png')
+            
+            current_url = self.page.url
+            print(f"Current URL after adding template: {current_url}")
+            
+            return True
             
         except Exception as e:
-            print(f"Error in template navigation: {e}")
-            raise
+            print(f"Error adding template: {e}")
+            import traceback
+            traceback.print_exc()
+            await self.page.screenshot(path='screenshot_error_template.png')
+            return False
     
     async def configure_webhook(self):
         """Find webhook step and configure it"""
-        print("Looking for 'Webhook Received' near the top of the page...")
+        print("\n" + "="*70)
+        print("CONFIGURING WEBHOOK")
+        print("="*70)
         
         try:
-            # Wait for page to fully load
-            await self.page.wait_for_timeout(3000)
+            # Wait for page to load
+            await self.page.wait_for_timeout(5000)
             
-            # Look specifically for "Webhook Received" text near the top
-            webhook_received_clicked = False
-            selectors = [
-                "text='Webhook Received'",
-                "text='webhook received'",
-                "text='Webhook received'",
-                "*:has-text('Webhook Received')",
-                "*:has-text('Webhook') >> *:has-text('Received')"
-            ]
+            # Scroll to top
+            await self.page.evaluate("window.scrollTo(0, 0)")
+            await self.page.wait_for_timeout(2000)
             
-            for selector in selectors:
-                try:
-                    webhook_received_element = await self.page.wait_for_selector(selector, timeout=10000)
-                    await webhook_received_element.click()
-                    print(f"Clicked 'Webhook Received' element using selector: {selector}")
-                    webhook_received_clicked = True
-                    await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-                    break
-                except:
-                    continue
+            # Take screenshot
+            await self.page.screenshot(path='screenshot_3_before_webhook.png')
             
-            if not webhook_received_clicked:
-                print("Warning: Could not find 'Webhook Received', trying alternative approach...")
-                # Try to find any webhook-related element
-                webhook_elements = await self.page.query_selector_all("*:has-text('webhook'), *:has-text('Webhook')")
-                if webhook_elements:
-                    await webhook_elements[0].click()
-                    print("Clicked first webhook element found")
-                    await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-            
-            # Click "Select an option..." dropdown
-            print("Looking for 'Select an option...' dropdown...")
-            dropdown_clicked = False
-            dropdown_selectors = [
-                "text='Select an option'",
-                "select",
-                "input[placeholder*='Select an option']",
-                "[role='combobox']",
-                "*:has-text('Select an option')"
-            ]
-            
-            for selector in dropdown_selectors:
-                try:
-                    select_dropdown = await self.page.wait_for_selector(selector, timeout=10000)
-                    await select_dropdown.click()
-                    print(f"Clicked dropdown using selector: {selector}")
-                    dropdown_clicked = True
-                    await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-                    break
-                except:
-                    continue
-            
-            if not dropdown_clicked:
-                print("Warning: Could not find dropdown, trying to type directly...")
-            
-            # Click "Create new..." option
-            print("Looking for 'Create new...' option...")
-            create_new_clicked = False
-            create_selectors = [
-                "text='Create new'",
-                "text='create new'",
-                "option:has-text('Create new')",
-                "li:has-text('Create new')",
-                "*:has-text('Create new')"
-            ]
-            
-            for selector in create_selectors:
-                try:
-                    create_new_option = await self.page.wait_for_selector(selector, timeout=10000)
-                    await create_new_option.click()
-                    print(f"Clicked 'Create new...' using selector: {selector}")
-                    create_new_clicked = True
-                    await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-                    break
-                except:
-                    continue
-            
-            if not create_new_clicked:
-                print("Warning: Could not find 'Create new' option, attempting to type directly...")
-            
-            # Type "Webhook" and press Enter
-            print("Typing 'Webhook' and pressing Enter...")
-            await self.page.wait_for_timeout(1000)
-            
-            # Try to find visible input field or use keyboard
-            try:
-                # Look for visible input fields
-                input_fields = await self.page.query_selector_all("input[type='text']:not([disabled])")
-                input_used = False
-                
-                for input_field in input_fields:
-                    is_visible = await input_field.is_visible()
-                    is_enabled = await input_field.is_enabled()
-                    
-                    if is_visible and is_enabled:
-                        await input_field.fill("Webhook")
-                        await input_field.press("Enter")
-                        print("Typed 'Webhook' in visible input field")
-                        input_used = True
-                        break
-                
-                if not input_used:
-                    # Use keyboard directly
-                    await self.page.keyboard.type("Webhook")
-                    await self.page.keyboard.press("Enter")
-                    print("Typed 'Webhook' using keyboard")
-                    
-            except Exception as e:
-                print(f"Error typing webhook name: {e}")
-            
-            await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
-            
-            # Click the webhook that was just created
-            print("Looking for the newly created webhook...")
-            webhook_clicked = False
+            # Look for webhook trigger
             webhook_selectors = [
-                "text='Webhook'",
-                "div:has-text('Webhook'):not(:has-text('Webhook Received'))",
-                "li:has-text('Webhook'):not(:has-text('Received'))",
-                "span:has-text('Webhook'):not(:has-text('Received'))"
+                "text='Webhook Received'",
+                "div:has-text('Webhook Received')",
+                "button:has-text('Webhook')",
+                "[class*='trigger']"
             ]
             
+            webhook_element = None
             for selector in webhook_selectors:
                 try:
-                    webhook_item = await self.page.wait_for_selector(selector, timeout=10000)
-                    await webhook_item.click()
-                    print(f"Clicked newly created webhook using selector: {selector}")
-                    webhook_clicked = True
-                    await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-                    break
+                    webhook_element = await self.page.wait_for_selector(selector, timeout=5000)
+                    if webhook_element:
+                        print(f"✓ Found webhook element: {selector}")
+                        break
                 except:
                     continue
             
-            if not webhook_clicked:
-                print("Warning: Could not find newly created webhook, continuing...")
+            if not webhook_element:
+                print("ERROR: Could not find webhook element")
+                await self.page.screenshot(path='screenshot_error_no_webhook.png')
+                return False
             
-            # Copy the Lindy URL
-            print("Looking for Lindy URL...")
-            await self.page.wait_for_timeout(2000)
+            # Click webhook element
+            await webhook_element.click()
+            await self.page.wait_for_timeout(3000)
+            print("✓ Clicked webhook element")
             
-            try:
-                # Look for URL field
-                url_elements = await self.page.query_selector_all("input[value*='https://']")
+            await self.page.screenshot(path='screenshot_4_webhook_opened.png')
+            
+            # Check if webhook already exists
+            existing_url = await self.page.query_selector("input[value*='https://']")
+            if existing_url:
+                self.lindy_url = await existing_url.input_value()
+                print(f"✓ Found existing webhook URL: {self.lindy_url}")
+            else:
+                # Create new webhook
+                create_btn = await self.page.query_selector("button:has-text('Create Webhook'), button:has-text('Create webhook')")
+                if not create_btn:
+                    print("ERROR: Could not find Create Webhook button")
+                    await self.page.screenshot(path='screenshot_error_no_create.png')
+                    return False
                 
-                for url_elem in url_elements:
-                    value = await url_elem.get_attribute('value')
-                    if value and 'lindy' in value.lower():
-                        self.lindy_url = value
-                        print(f"Found Lindy URL: {self.lindy_url}")
-                        break
+                await create_btn.click()
+                await self.page.wait_for_timeout(3000)
+                print("✓ Clicked Create Webhook")
                 
-                if not self.lindy_url:
-                    # Try to find copy button for URL
-                    copy_buttons = await self.page.query_selector_all("button:has-text('Copy')")
-                    if copy_buttons:
-                        await copy_buttons[0].click()
-                        await self.page.wait_for_timeout(1000)
-                        self.lindy_url = await self.page.evaluate("navigator.clipboard.readText()")
-                        print(f"Copied Lindy URL: {self.lindy_url}")
-                        
-            except Exception as e:
-                print(f"Error getting Lindy URL: {e}")
-            
-            # Create secret key/authorization token
-            print("Creating authorization token...")
-            secret_button_clicked = False
-            secret_selectors = [
-                "button:has-text('Generate secret')",
-                "button:has-text('generate secret')",
-                "button:has-text('Secret')",
-                "button:has-text('secret')",
-                "button:has-text('Generate')",
-                "button:has-text('Token')",
-                "button:has-text('token')"
-            ]
-            
-            for selector in secret_selectors:
-                try:
-                    secret_key_button = await self.page.wait_for_selector(selector, timeout=10000)
-                    await secret_key_button.click()
-                    print(f"Clicked secret key button using selector: {selector}")
-                    secret_button_clicked = True
-                    await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-                    break
-                except:
-                    continue
-            
-            if not secret_button_clicked:
-                print("Warning: Could not find secret key button")
-            
-            # Copy the secret key
-            await self.page.wait_for_timeout(2000)
-            try:
-                # Try to find the secret key value
-                secret_elements = await self.page.query_selector_all("input[type='text'], input[type='password']")
+                # Name the webhook
+                name_input = await self.page.query_selector("input[type='text']")
+                if name_input:
+                    webhook_name = f"Lead Processing {int(time.time())}"
+                    await name_input.fill(webhook_name)
+                    await self.page.keyboard.press('Enter')
+                    await self.page.wait_for_timeout(3000)
+                    print(f"✓ Named webhook: {webhook_name}")
                 
-                for element in secret_elements:
-                    is_visible = await element.is_visible()
-                    if not is_visible:
-                        continue
-                    
-                    value = await element.get_attribute('value')
-                    if value and len(value) > 15:  # Secret keys are usually longer
-                        self.auth_token = value
-                        # Copy to clipboard
-                        await element.click()
-                        await element.select_text()
-                        await self.page.keyboard.press("Control+C")
-                        print(f"Copied authorization token")
-                        break
+                await self.page.screenshot(path='screenshot_5_webhook_created.png')
                 
-                if not self.auth_token:
-                    # Try copy button
-                    copy_buttons = await self.page.query_selector_all("button:has-text('Copy')")
-                    for btn in copy_buttons:
-                        is_visible = await btn.is_visible()
-                        if is_visible:
-                            await btn.click()
-                            await self.page.wait_for_timeout(1000)
-                            self.auth_token = await self.page.evaluate("navigator.clipboard.readText()")
-                            print(f"Copied authorization token via button")
-                            break
-                    
-            except Exception as e:
-                print(f"Error copying secret key: {e}")
+                # Get the webhook URL
+                url_input = await self.page.wait_for_selector("input[value*='https://']", timeout=10000)
+                self.lindy_url = await url_input.input_value()
+                print(f"✓ Got webhook URL: {self.lindy_url}")
             
-            # UPDATED: Do NOT press Escape or click outside - stay on Webhook Received GUI
-            print("Staying on 'Webhook Received' GUI (not closing dialog)...")
-            await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
+            # Get authorization token
+            secret_btn = await self.page.query_selector("button:has-text('secret'), button:has-text('Secret')")
+            if secret_btn:
+                await secret_btn.click()
+                await self.page.wait_for_timeout(2000)
+                print("✓ Clicked secret button")
+                
+                await self.page.screenshot(path='screenshot_6_secret.png')
+                
+                # Get token
+                token_input = await self.page.query_selector("input[readonly]")
+                if token_input:
+                    self.auth_token = await token_input.input_value()
+                    print(f"✓ Got auth token: {self.auth_token[:20]}...")
+                
+                # Close dialog
+                await self.page.keyboard.press('Escape')
+                await self.page.wait_for_timeout(1000)
+            else:
+                print("WARNING: No secret button found")
+                self.auth_token = ""
             
-            # UPDATED: Verify we're still on the Webhook Received page
-            try:
-                webhook_received_check = await self.page.query_selector_all("*:has-text('Webhook Received')")
-                if webhook_received_check:
-                    print("Confirmed: Still on 'Webhook Received' GUI")
-                else:
-                    print("Warning: May have navigated away from 'Webhook Received' GUI")
-                    # UPDATED: Try to navigate back to Webhook Received
-                    print("Attempting to navigate back to 'Webhook Received'...")
-                    for selector in selectors:
-                        try:
-                            webhook_received_element = await self.page.wait_for_selector(selector, timeout=10000)
-                            await webhook_received_element.click()
-                            print(f"Navigated back to 'Webhook Received' using selector: {selector}")
-                            await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-                            break
-                        except:
-                            continue
-            except Exception as e:
-                print(f"Error verifying Webhook Received GUI: {e}")
+            return True
             
         except Exception as e:
             print(f"Error configuring webhook: {e}")
             import traceback
             traceback.print_exc()
-            raise
+            await self.page.screenshot(path='screenshot_error_webhook.png')
+            return False
     
     async def deploy_lindy(self):
-        """Deploy the Lindy automation"""
-        print("Deploying Lindy...")
+        """Deploy the agent"""
+        print("\n" + "="*70)
+        print("DEPLOYING AGENT")
+        print("="*70)
         
         try:
-            deploy_button = await self.page.wait_for_selector(
-                "button:has-text('Deploy'), button:has-text('deploy')",
-                timeout=30000
-            )
-            await deploy_button.click()
-            print("Clicked 'Deploy' button")
+            deploy_btn = await self.page.query_selector("button:has-text('Deploy')")
+            if not deploy_btn:
+                print("WARNING: No Deploy button found - may already be deployed")
+                return True
             
-            await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
+            await deploy_btn.click()
+            await self.page.wait_for_timeout(5000)
+            print("✓ Clicked Deploy")
             
-            # Verify deployment
-            try:
-                success_indicator = await self.page.query_selector(
-                    "*:has-text('deployed'), *:has-text('Deployed'), *:has-text('active'), *:has-text('Active')"
-                )
-                if success_indicator:
-                    print("Deployment verified!")
-            except:
-                print("Deployment status unclear, but continuing...")
-                
+            await self.page.screenshot(path='screenshot_7_deployed.png')
+            return True
+            
         except Exception as e:
-            print(f"Error deploying: {e}")
-            print("Continuing despite deployment error...")
+            print(f"Note: Deploy: {e}")
+            return True
     
     async def configure_n8n(self):
-        """Navigate to N8N and configure with Lindy details"""
-        print(f"Navigating to N8N: {config.N8N_URL}")
+        """Configure N8N"""
+        print("\n" + "="*70)
+        print("CONFIGURING N8N")
+        print("="*70)
         
-        if not self.lindy_url or not self.auth_token:
-            print("ERROR: Missing Lindy URL or Auth Token!")
-            print(f"Lindy URL: {self.lindy_url}")
-            print(f"Auth Token: {self.auth_token}")
-            raise Exception("Cannot configure N8N without Lindy URL and Auth Token")
-        
-        await self.page.goto(config.N8N_URL)
-        await self.page.wait_for_load_state('networkidle')
+        if not self.lindy_url:
+            print("ERROR: No webhook URL!")
+            return False
         
         try:
-            # Find Lindy URL input
-            lindy_url_input = await self.page.wait_for_selector(
-                "input[placeholder*='Lindy URL'], input[name*='lindy'], input[id*='lindy']",
-                timeout=30000
-            )
-            await lindy_url_input.fill(self.lindy_url)
-            print("Entered Lindy URL in N8N")
+            await self.page.goto(config.N8N_URL, wait_until='networkidle', timeout=60000)
+            await self.page.wait_for_timeout(5000)
             
-            # Find Authorization Token input
-            auth_token_input = await self.page.query_selector(
-                "input[placeholder*='Authorization'], input[placeholder*='Token'], input[name*='token'], input[name*='auth']"
-            )
-            await auth_token_input.fill(self.auth_token)
-            print("Entered authorization token in N8N")
+            await self.page.screenshot(path='screenshot_8_n8n.png')
             
-            # Click Save Configuration
-            save_config_button = await self.page.query_selector(
-                "button:has-text('Save Configuration'), button:has-text('Save')"
-            )
-            await save_config_button.click()
-            print("Clicked 'Save Configuration' button")
+            # Fill Lindy URL
+            lindy_input = await self.page.wait_for_selector("input[placeholder*='Lindy URL' i]", timeout=10000)
+            await lindy_input.click()
+            await self.page.keyboard.press('Control+A')
+            await lindy_input.fill(self.lindy_url)
+            print(f"✓ Entered Lindy URL")
             
-            await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
+            # Fill auth token
+            auth_input = await self.page.query_selector("input[placeholder*='Authorization' i], input[placeholder*='Token' i]")
+            if auth_input:
+                await auth_input.click()
+                await self.page.keyboard.press('Control+A')
+                await auth_input.fill(self.auth_token if self.auth_token else "")
+                print(f"✓ Entered auth token")
             
-            # Scroll down to find Start Processing button
-            await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await self.page.wait_for_timeout(2000)
+            await self.page.screenshot(path='screenshot_9_n8n_filled.png')
             
-            # Click Start Processing
-            start_button = await self.page.query_selector(
-                "button:has-text('Start Processing'), button:has-text('Start')"
-            )
-            await start_button.click()
-            print("Clicked 'Start Processing' button")
+            # Save
+            save_btn = await self.page.wait_for_selector("button:has-text('Save Configuration'), button:has-text('Save')", timeout=10000)
+            await save_btn.scroll_into_view_if_needed()
+            await self.page.wait_for_timeout(1000)
+            await save_btn.click()
+            await self.page.wait_for_timeout(3000)
+            print("✓ Saved configuration")
             
-            await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
+            await self.page.screenshot(path='screenshot_10_n8n_saved.png')
+            
+            # Start processing
+            start_btn = await self.page.query_selector("button:has-text('Start Processing'), button:has-text('Start')")
+            if start_btn:
+                await start_btn.click()
+                await self.page.wait_for_timeout(3000)
+                print("✓ Started processing")
+                
+                await self.page.screenshot(path='screenshot_11_n8n_started.png')
+            
+            return True
             
         except Exception as e:
             print(f"Error configuring N8N: {e}")
-            raise
+            import traceback
+            traceback.print_exc()
+            await self.page.screenshot(path='screenshot_error_n8n.png')
+            return False
     
     async def wait_period(self):
-        """Wait for 10 minutes"""
-        print(f"Waiting for {config.WAIT_TIME} seconds (10 minutes)...")
+        """Wait 10 minutes"""
+        print("\n" + "="*70)
+        print("WAITING 10 MINUTES")
+        print("="*70)
         
-        for i in range(config.WAIT_TIME // 60):
-            print(f"Waited {i+1} minute(s)...")
-            await asyncio.sleep(60)
+        wait_time = config.WAIT_TIME
+        print(f"Waiting {wait_time} seconds ({wait_time/60} minutes)...")
         
-        print("Wait period completed!")
+        for i in range(0, wait_time, 60):
+            remaining = wait_time - i
+            print(f"  {remaining} seconds remaining...")
+            await asyncio.sleep(min(60, remaining))
+        
+        print("✓ Wait complete!")
+        return True
     
-    async def delete_lindy_account(self):
-        """Delete the Lindy account"""
-        print("Deleting Lindy account...")
+    async def delete_account(self):
+        """Delete Lindy account"""
+        print("\n" + "="*70)
+        print("DELETING ACCOUNT")
+        print("="*70)
         
         try:
-            # Navigate to settings/account page
-            await self.page.goto("https://chat.lindy.ai/settings")
-            await self.page.wait_for_load_state('networkidle')
+            await self.page.goto("https://chat.lindy.ai", wait_until='networkidle', timeout=60000)
+            await self.page.wait_for_timeout(3000)
             
-            # Look for account or danger zone section
-            try:
-                delete_button = await self.page.wait_for_selector(
-                    "button:has-text('Delete'), button:has-text('delete')",
-                    timeout=30000
-                )
-                await delete_button.click()
-                print("Clicked delete account button")
+            await self.page.screenshot(path='screenshot_12_before_delete.png')
+            
+            # Find menu
+            menu_btn = await self.page.query_selector("button[aria-label*='menu' i], [class*='menu'], [class*='avatar']")
+            if not menu_btn:
+                print("WARNING: No menu button found")
+                return False
+            
+            await menu_btn.click()
+            await self.page.wait_for_timeout(2000)
+            print("✓ Opened menu")
+            
+            await self.page.screenshot(path='screenshot_13_menu.png')
+            
+            # Find Settings
+            settings_btn = await self.page.query_selector("text='Settings', button:has-text('Settings')")
+            if settings_btn:
+                await settings_btn.click()
+                await self.page.wait_for_timeout(3000)
+                print("✓ Opened Settings")
                 
-                await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-                
-                # Confirm deletion
-                confirm_button = await self.page.wait_for_selector(
-                    "button:has-text('Confirm'), button:has-text('Delete'), button:has-text('Yes')",
-                    timeout=30000
-                )
-                await confirm_button.click()
-                print("Confirmed account deletion")
-                
-                await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
-                print("Account deleted successfully!")
-                
-            except PlaywrightTimeout:
-                print("Could not find delete button, trying alternative method...")
-                # Try to find settings menu
-                settings_links = await self.page.query_selector_all("a:has-text('Settings'), a:has-text('Account')")
-                if settings_links:
-                    await settings_links[0].click()
-                    await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-                    # Try again
-                    delete_button = await self.page.query_selector("button:has-text('Delete')")
-                    await delete_button.click()
-                    
+                await self.page.screenshot(path='screenshot_14_settings.png')
+            
+            # Find Delete Account
+            delete_btn = await self.page.query_selector("button:has-text('Delete Account'), button:has-text('Delete account')")
+            if not delete_btn:
+                print("WARNING: No Delete Account button found")
+                return False
+            
+            await delete_btn.click()
+            await self.page.wait_for_timeout(2000)
+            print("✓ Clicked Delete Account")
+            
+            await self.page.screenshot(path='screenshot_15_delete_confirm.png')
+            
+            # Confirm
+            confirm_btn = await self.page.query_selector("button:has-text('Confirm'), button:has-text('Delete'), button:has-text('Yes')")
+            if confirm_btn:
+                await confirm_btn.click()
+                await self.page.wait_for_timeout(3000)
+                print("✓ Confirmed deletion")
+            
+            await self.page.screenshot(path='screenshot_16_deleted.png')
+            
+            print("\n✓ Account deleted!")
+            return True
+            
         except Exception as e:
             print(f"Error deleting account: {e}")
-            print("You may need to delete the account manually")
+            import traceback
+            traceback.print_exc()
+            await self.page.screenshot(path='screenshot_error_delete.png')
+            return False
+    
+    async def cleanup(self):
+        """Cleanup"""
+        print("\nClosing browser...")
+        try:
+            if self.page:
+                await self.page.close()
+            if self.context:
+                await self.context.close()
+            if self.browser:
+                await self.browser.close()
+            if self.playwright:
+                await self.playwright.stop()
+            print("✓ Browser closed")
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
     
     async def run(self):
-        """Execute the complete automation workflow"""
+        """Run the automation"""
         try:
-            print("\n" + "="*50)
-            print("Starting Lindy Automation (Playwright)")
-            print("="*50 + "\n")
+            # Setup browser
+            await self.setup(use_saved_session=True)
             
-            await self.setup()
-            await self.google_signin()
-            await self.fill_signup_form()
-            await self.handle_free_trial()
-            await self.navigate_to_template()
-            await self.configure_webhook()
+            # Check if logged in
+            if not await self.check_login_status():
+                print("\nNot logged in. Need to establish session...")
+                await self.manual_login_prompt()
+                
+                # Verify login worked
+                if not await self.check_login_status():
+                    print("\n!!! Still not logged in. Aborting.")
+                    return False
+            
+            # Run the automation steps
+            if not await self.add_template():
+                print("\n!!! Failed to add template")
+                return False
+            
+            if not await self.configure_webhook():
+                print("\n!!! Failed to configure webhook")
+                return False
+            
             await self.deploy_lindy()
-            await self.configure_n8n()
-            await self.wait_period()
-            await self.delete_lindy_account()
             
-            print("\n" + "="*50)
-            print("Automation completed successfully!")
-            print("="*50 + "\n")
+            if not await self.configure_n8n():
+                print("\n!!! Failed to configure N8N")
+                return False
+            
+            await self.wait_period()
+            
+            await self.delete_account()
+            
+            print("\n" + "="*70)
+            print("AUTOMATION COMPLETED SUCCESSFULLY!")
+            print("="*70)
+            return True
             
         except Exception as e:
             print(f"\n!!! Automation failed: {e}")
             import traceback
             traceback.print_exc()
-            raise
+            return False
         finally:
-            print("Closing browser...")
-            try:
-                if self.page:
-                    await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-                if self.browser:
-                    await self.browser.close()
-                if self.playwright:
-                    await self.playwright.stop()
-            except Exception as e:
-                print(f"Error during cleanup: {e}")
+            await self.cleanup()
 
 
 async def main():
+    """Main entry point"""
+    print("\n" + "="*70)
+    print("Lindy Automation - Final Version")
+    print("="*70 + "\n")
+    
     automation = LindyAutomationPlaywright()
     await automation.run()
 

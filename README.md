@@ -1,195 +1,264 @@
-# Lindy Automation with Selenium
+# Lindy Automation with Playwright
 
-This project automates the complete workflow for setting up a Lindy account with webhook integration and N8N configuration.
+This automation script handles the complete workflow for setting up a Lindy agent with webhook integration and N8N configuration.
 
 ## Features
 
-- ✅ Automated Google account sign-in
-- ✅ Lindy signup form completion
-- ✅ Free trial activation with card details
-- ✅ Template installation and configuration
-- ✅ Webhook creation and secret key generation
+- ✅ Automated Google sign-in with fallback to manual login
+- ✅ Template addition to workspace
+- ✅ Webhook configuration with URL and authorization token extraction
+- ✅ Agent deployment
 - ✅ N8N integration setup
-- ✅ Automated deployment
-- ✅ Account cleanup after processing
+- ✅ Automatic account cleanup after 10 minutes
+- ✅ Session persistence for reusability
+- ✅ Comprehensive error handling and screenshots
 
 ## Prerequisites
 
-- Python 3.8 or higher
-- Chrome browser installed
-- Internet connection
+- Python 3.7+
+- Playwright
+- pyperclip
 
 ## Installation
 
-1. Clone this repository:
+### Quick Start (Linux/Mac)
+
 ```bash
-git clone git@github.com:Halfpro6119/lindy-automation-selenium.git
+git clone https://github.com/Halfpro6119/lindy-automation-selenium.git
 cd lindy-automation-selenium
+./quick_start.sh
 ```
 
-2. Install required packages:
+### Quick Start (Windows)
+
+```powershell
+git clone https://github.com/Halfpro6119/lindy-automation-selenium.git
+cd lindy-automation-selenium
+.\quick_start.bat
+```
+
+### Manual Installation
+
 ```bash
-pip install -r requirements.txt
+# Clone the repository
+git clone https://github.com/Halfpro6119/lindy-automation-selenium.git
+cd lindy-automation-selenium
+
+# Install dependencies
+pip install playwright pyperclip
+python -m playwright install chromium
+
+# Copy and configure settings
+cp config_template.py config.py
+# Edit config.py with your credentials
 ```
 
 ## Configuration
 
-**Important:** Before running the script, you must create your own `config.py` file:
+Edit `config.py` with your credentials:
 
-```bash
-cp config_template.py config.py
+```python
+# Google Account Credentials
+GOOGLE_EMAIL = "your-email@gmail.com"
+GOOGLE_PASSWORD = "your-password"
+
+# Card Details for Free Trial (if needed)
+CARD_NUMBER = "1234567890123456"
+CARD_EXPIRY = "MM/YY"
+CARD_CVC = "123"
+CARDHOLDER_NAME = "Your Name"
+CARD_COUNTRY = "Your Country"
+POSTAL_CODE = "Your Postal Code"
+
+# URLs
+LINDY_TEMPLATE_URL = "https://chat.lindy.ai/home/?templateId=68e5dd479651421f3052eaa6"
+N8N_URL = "https://n8n-lead-processing-jjde.bolt.host/"
+
+# Timeouts
+WAIT_TIME = 600  # 10 minutes
 ```
-
-Then edit `config.py` and fill in your actual credentials.
-
-All credentials and settings should be stored in `config.py` (copy from `config_template.py`). The file includes:
-
-- Google account credentials
-- Card payment details
-- GitHub token
-- Lindy and N8N URLs
-- Timeout settings
-
-**⚠️ Security Warning:** Never commit real credentials to a public repository. This is for demonstration purposes only.
 
 ## Usage
 
-Run the automation script:
+### Run the automation:
 
 ```bash
-python main.py
+python main_playwright.py
 ```
 
-The script will:
+### First Run - Manual Login
 
-1. Sign in to Google account
-2. Complete Lindy signup process
-3. Activate free trial (if required)
-4. Navigate to the specified template
-5. Add template to account
-6. Configure webhook with secret key
-7. Deploy the Lindy automation
-8. Configure N8N with Lindy URL and authorization token
-9. Start processing
-10. Wait for 10 minutes
-11. Delete the Lindy account
+Due to Google's security measures that detect automated logins, the first time you run the script:
 
-## Workflow Details
+1. The script will detect that you're not logged in
+2. A browser window will open
+3. **Manually log in** to Lindy using your Google account
+4. Wait until you see the Lindy workspace/home page
+5. The script will automatically detect the login and save your session
+6. The browser will close and reopen in headless mode to continue the automation
 
-### Google Sign-in
-The script automatically signs in using the provided Google credentials.
+### Subsequent Runs
 
-### Signup Form
-Fills out any required signup forms with appropriate information.
+After the first manual login, the script will use the saved session (`lindy_session.json`) and run completely automated without requiring manual intervention.
 
-### Free Trial Setup
-- Clicks "Start Free Trial" button
-- Enters card details:
-  - Card Number: 5196 1203 9396 8168
-  - Expiry: 02/30
-  - CVC: 315
-  - Cardholder: Mr Big G
-  - Country: United Kingdom
-  - Postal Code: SW1A 1AA
+## How It Works
 
-### Template Configuration
-- Navigates to template ID: `68e5dd479651421f3052eaa6`
-- Adds template to account
-- Locates webhook step
-- Creates webhook with name
-- Generates and copies Lindy URL
-- Creates authorization token/secret key
+The automation performs the following steps:
 
-### Deployment
-Deploys the Lindy automation and verifies deployment status.
-
-### N8N Integration
-- Navigates to N8N instance
-- Enters Lindy URL
-- Enters authorization token
-- Saves configuration
-- Starts processing
-
-### Wait Period
-Waits for 10 minutes to allow processing to complete.
-
-### Cleanup
-Deletes the Lindy account after processing is complete.
-
-## File Structure
-
-```
-lindy-automation-selenium/
-├── main.py              # Main automation script
-├── config.py            # Configuration and credentials
-├── requirements.txt     # Python dependencies
-└── README.md           # This file
-```
-
-## Dependencies
-
-- **selenium**: Web automation framework
-- **requests**: HTTP library for API calls
-- **webdriver-manager**: Automatic ChromeDriver management
-- **pyperclip**: Clipboard operations for copying URLs and tokens
+1. **Session Check**: Checks if you're already logged in using saved session
+2. **Manual Login** (if needed): Opens a browser for you to log in manually
+3. **Add Template**: Navigates to the specified template and adds it to your workspace
+4. **Configure Webhook**: 
+   - Finds the webhook trigger in the template
+   - Creates a new webhook (or uses existing)
+   - Extracts the webhook URL
+   - Retrieves the authorization token
+5. **Deploy Agent**: Deploys the Lindy agent
+6. **Configure N8N**: 
+   - Navigates to the N8N URL
+   - Enters the Lindy webhook URL
+   - Enters the authorization token
+   - Saves configuration and starts processing
+7. **Wait Period**: Waits for 10 minutes (configurable)
+8. **Cleanup**: Deletes the Lindy account
 
 ## Troubleshooting
 
+### Google Login Issues
+
+**Problem**: Google blocks automated login attempts
+
+**Solution**: The script now handles this automatically by:
+- Detecting when Google blocks the login
+- Opening a visible browser window for manual login
+- Saving your session for future runs
+- Using the saved session to bypass login on subsequent runs
+
+### Screenshots
+
+The script takes screenshots at each major step for debugging:
+- `screenshot_1_template_page.png` - Template page
+- `screenshot_2_after_add.png` - After adding template
+- `screenshot_3_before_webhook.png` - Before webhook configuration
+- `screenshot_4_webhook_opened.png` - Webhook dialog opened
+- `screenshot_5_webhook_created.png` - After webhook creation
+- And more...
+
+Check these screenshots if something goes wrong to see exactly where the automation failed.
+
 ### Common Issues
 
-1. **ChromeDriver not found**
-   - The script uses `webdriver-manager` to automatically download the correct ChromeDriver
-   - Ensure you have Chrome browser installed
+**Issue**: "Not logged in" error
+**Fix**: Delete `lindy_session.json` and run the script again to perform a fresh manual login
 
-2. **Element not found errors**
-   - Website structure may have changed
-   - Increase timeout values in `config.py`
-   - Check if selectors need updating
+**Issue**: "Could not find webhook element"
+**Fix**: The template structure may have changed. Check the screenshots to see the current page state.
 
-3. **Google sign-in issues**
-   - Verify credentials in `config.py`
-   - Check if 2FA is enabled (may require manual intervention)
-   - Google may block automated sign-ins - use app-specific passwords if needed
+**Issue**: "Could not find Add button"
+**Fix**: Verify the template URL is correct and the template still exists.
 
-4. **Card payment fails**
-   - Ensure card details are valid
-   - Check if additional verification is required
+## Files
 
-5. **Webhook creation fails**
-   - Verify you're on the correct template page
-   - Check if webhook step exists in the template
+- `main_playwright.py` - Main automation script
+- `config.py` - Configuration file (create from template)
+- `config_template.py` - Configuration template
+- `requirements.txt` - Python dependencies
+- `quick_start.sh` - Quick start script for Linux/Mac
+- `quick_start.bat` - Quick start script for Windows
+- `lindy_session.json` - Saved browser session (auto-generated)
 
-## Security Considerations
+## Security Notes
 
-- Store credentials securely (use environment variables in production)
-- Never commit real credentials to version control
-- Use `.gitignore` to exclude sensitive files
-- Consider using a secrets management service
-- Rotate credentials regularly
+⚠️ **Important**: 
+- Never commit `config.py` to version control (it's in `.gitignore`)
+- Keep your credentials secure
+- The `lindy_session.json` file contains authentication cookies - keep it private
+- Consider using environment variables for sensitive data in production
 
-## Limitations
+## Customization
 
-- Requires Chrome browser
-- May need updates if website structure changes
-- Google may block automated sign-ins
-- Some steps may require manual intervention depending on account status
+### Change Wait Time
+
+Edit `config.py`:
+```python
+WAIT_TIME = 300  # 5 minutes instead of 10
+```
+
+### Use Different Template
+
+Edit `config.py`:
+```python
+LINDY_TEMPLATE_URL = "https://chat.lindy.ai/home/?templateId=YOUR_TEMPLATE_ID"
+```
+
+### Skip Account Deletion
+
+Comment out the deletion step in `main_playwright.py`:
+```python
+# await self.delete_account()
+```
+
+## Development
+
+### Running in Visible Mode
+
+To see what the automation is doing, edit `main_playwright.py`:
+
+```python
+self.browser = await self.playwright.chromium.launch(
+    headless=False,  # Change to False
+    args=[...]
+)
+```
+
+### Adding More Steps
+
+The automation is modular. Add new methods to the `LindyAutomationPlaywright` class and call them in the `run()` method.
+
+## Known Limitations
+
+1. **Google Login**: Requires manual login on first run due to Google's bot detection
+2. **Template Structure**: If Lindy changes their UI, selectors may need updating
+3. **N8N Integration**: Assumes specific input field names on the N8N page
 
 ## Contributing
 
-Feel free to submit issues or pull requests if you find bugs or have improvements.
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
 ## License
 
-This project is for educational and demonstration purposes only.
-
-## Disclaimer
-
-This automation tool is provided as-is. Use responsibly and in accordance with the terms of service of all platforms involved. Automated account creation and manipulation may violate terms of service.
-
-## Author
-
-Created by Halfpro6119
+MIT License - See LICENSE file for details
 
 ## Support
 
-For issues or questions, please open an issue on GitHub.
+For issues or questions:
+- Open an issue on GitHub
+- Check the screenshots for debugging
+- Review the console output for error messages
+
+## Changelog
+
+### Version 2.0 (Current)
+- ✅ Fixed Google login detection issues
+- ✅ Added manual login fallback
+- ✅ Implemented session persistence
+- ✅ Improved error handling
+- ✅ Added comprehensive screenshots
+- ✅ Better selector strategies
+- ✅ Cleaned up repository structure
+
+### Version 1.0
+- Initial release with basic automation
+- Google sign-in (had issues with bot detection)
+- Template addition
+- Webhook configuration
+- N8N integration
+
+## Credits
+
+Created for automating Lindy agent setup and N8N integration workflows.
