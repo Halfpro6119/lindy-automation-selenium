@@ -10,9 +10,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.action_chains import ActionChains
 import config
 
 
@@ -24,15 +25,33 @@ class LindyAutomation:
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--start-maximized')
+        options.add_argument('--disable-blink-features=AutomationControlled')
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
         
         self.driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=options
         )
         self.wait = WebDriverWait(self.driver, 30)
+        self.short_wait = WebDriverWait(self.driver, 10)
         self.lindy_url = None
         self.auth_token = None
         
+    def safe_click(self, element):
+        """Safely click an element with multiple fallback methods"""
+        try:
+            element.click()
+        except ElementClickInterceptedException:
+            # Try JavaScript click if regular click is intercepted
+            self.driver.execute_script("arguments[0].click();", element)
+        except Exception as e:
+            # Try ActionChains as last resort
+            try:
+                ActionChains(self.driver).move_to_element(element).click().perform()
+            except:
+                raise e
+    
     def google_signin(self):
         """Sign in to Google account"""
         print("Starting Google sign-in process...")
@@ -47,16 +66,16 @@ class LindyAutomation:
                 # Try to find "Sign in with Google" or similar button
                 google_signin_button = self.wait.until(
                     EC.element_to_be_clickable((By.XPATH, 
-                        "//button[contains(., 'Google') or contains(., 'google')]"))
+                        "//button[contains(., 'Google') or contains(., 'google') or contains(., 'Sign in')]"))
                 )
-                google_signin_button.click()
+                self.safe_click(google_signin_button)
                 print("Clicked Google sign-in button")
             except TimeoutException:
                 print("Looking for alternative sign-in method...")
                 # Try alternative selectors
                 signin_button = self.driver.find_element(By.XPATH, 
-                    "//button[contains(@class, 'google') or contains(text(), 'Sign')]")
-                signin_button.click()
+                    "//button[contains(@class, 'google') or contains(text(), 'Sign') or contains(@aria-label, 'Google')]")
+                self.safe_click(signin_button)
             
             time.sleep(config.SHORT_WAIT)
             
@@ -65,6 +84,7 @@ class LindyAutomation:
             email_input = self.wait.until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))
             )
+            email_input.clear()
             email_input.send_keys(config.GOOGLE_EMAIL)
             email_input.send_keys(Keys.RETURN)
             
@@ -74,19 +94,20 @@ class LindyAutomation:
             password_input = self.wait.until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']"))
             )
+            password_input.clear()
             password_input.send_keys(config.GOOGLE_PASSWORD)
             password_input.send_keys(Keys.RETURN)
             
             time.sleep(config.MEDIUM_WAIT)
             
-            # NEW: Handle "You're signing back in to Lindy" page
+            # Handle "You're signing back in to Lindy" page
             try:
                 print("Checking for 'Continue' button on sign-in page...")
-                continue_button = self.wait.until(
+                continue_button = self.short_wait.until(
                     EC.element_to_be_clickable((By.XPATH,
                         "//button[contains(., 'Continue') or contains(., 'continue')]"))
                 )
-                continue_button.click()
+                self.safe_click(continue_button)
                 print("Clicked 'Continue' button on sign-in page")
                 time.sleep(config.MEDIUM_WAIT)
             except TimeoutException:
@@ -113,6 +134,9 @@ class LindyAutomation:
                 
                 for field in form_fields:
                     try:
+                        if not field.is_displayed() or not field.is_enabled():
+                            continue
+                            
                         field_type = field.get_attribute('type')
                         field_name = field.get_attribute('name') or field.get_attribute('placeholder') or ''
                         
@@ -134,7 +158,7 @@ class LindyAutomation:
                 try:
                     submit_button = self.driver.find_element(By.XPATH,
                         "//button[contains(., 'Continue') or contains(., 'Submit') or contains(., 'Next')]")
-                    submit_button.click()
+                    self.safe_click(submit_button)
                     print("Submitted form")
                     time.sleep(config.MEDIUM_WAIT)
                 except:
@@ -150,11 +174,11 @@ class LindyAutomation:
         try:
             # Check if we need to start free trial
             try:
-                start_trial_button = self.wait.until(
+                start_trial_button = self.short_wait.until(
                     EC.element_to_be_clickable((By.XPATH,
                         "//button[contains(., 'Start Free Trial') or contains(., 'Start Trial')]"))
                 )
-                start_trial_button.click()
+                self.safe_click(start_trial_button)
                 print("Clicked 'Start Free Trial' button")
                 time.sleep(config.SHORT_WAIT)
                 
@@ -172,23 +196,29 @@ class LindyAutomation:
         print("Entering card details...")
         
         try:
+            # Wait for card form to load
+            time.sleep(2)
+            
             # Card number
             card_number_input = self.wait.until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, 
-                    "input[name*='card' i][name*='number' i], input[placeholder*='card number' i]"))
+                    "input[name*='card' i][name*='number' i], input[placeholder*='card number' i], input[placeholder*='Card number' i]"))
             )
+            card_number_input.clear()
             card_number_input.send_keys(config.CARD_NUMBER)
             print("Entered card number")
             
             # Expiry date
             expiry_input = self.driver.find_element(By.CSS_SELECTOR,
                 "input[name*='expir' i], input[placeholder*='expir' i], input[placeholder*='MM' i]")
+            expiry_input.clear()
             expiry_input.send_keys(config.CARD_EXPIRY)
             print("Entered expiry date")
             
             # CVC
             cvc_input = self.driver.find_element(By.CSS_SELECTOR,
                 "input[name*='cvc' i], input[name*='cvv' i], input[placeholder*='cvc' i]")
+            cvc_input.clear()
             cvc_input.send_keys(config.CARD_CVC)
             print("Entered CVC")
             
@@ -196,6 +226,7 @@ class LindyAutomation:
             try:
                 name_input = self.driver.find_element(By.CSS_SELECTOR,
                     "input[name*='name' i], input[placeholder*='name' i]")
+                name_input.clear()
                 name_input.send_keys(config.CARDHOLDER_NAME)
                 print("Entered cardholder name")
             except:
@@ -209,6 +240,7 @@ class LindyAutomation:
                     from selenium.webdriver.support.ui import Select
                     Select(country_select).select_by_visible_text(config.CARD_COUNTRY)
                 else:
+                    country_select.clear()
                     country_select.send_keys(config.CARD_COUNTRY)
                 print("Selected country")
             except:
@@ -218,6 +250,7 @@ class LindyAutomation:
             try:
                 postal_input = self.driver.find_element(By.CSS_SELECTOR,
                     "input[name*='postal' i], input[name*='zip' i], input[placeholder*='postal' i]")
+                postal_input.clear()
                 postal_input.send_keys(config.POSTAL_CODE)
                 print("Entered postal code")
             except:
@@ -227,7 +260,7 @@ class LindyAutomation:
             time.sleep(config.SHORT_WAIT)
             save_button = self.driver.find_element(By.XPATH,
                 "//button[contains(., 'Save') or contains(., 'Submit') or contains(., 'Add Card')]")
-            save_button.click()
+            self.safe_click(save_button)
             print("Clicked 'Save Card' button")
             
             time.sleep(config.MEDIUM_WAIT)
@@ -250,21 +283,40 @@ class LindyAutomation:
                 EC.element_to_be_clickable((By.XPATH,
                     "//button[contains(., 'Add') or contains(., 'Use') or contains(., 'Install')]"))
             )
-            add_template_button.click()
+            self.safe_click(add_template_button)
             print("Clicked 'Add' button")
             time.sleep(config.MEDIUM_WAIT)
             
-            # NEW: Wait for page to load and click "Flow Editor" button
+            # Wait for page to load and click "Flow Editor" button
             print("Waiting for page to load and looking for 'Flow Editor' button...")
-            time.sleep(3)  # Wait a few seconds for the page to load
+            time.sleep(5)  # Increased wait time for page to fully load
             
-            flow_editor_button = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH,
-                    "//button[contains(., 'Flow Editor') or contains(., 'flow editor') or contains(., 'Editor')]"))
-            )
-            flow_editor_button.click()
-            print("Clicked 'Flow Editor' button")
-            time.sleep(config.MEDIUM_WAIT)
+            # Try multiple selectors for Flow Editor button
+            flow_editor_clicked = False
+            selectors = [
+                "//button[contains(., 'Flow Editor')]",
+                "//button[contains(., 'flow editor')]",
+                "//button[contains(., 'Editor')]",
+                "//a[contains(., 'Flow Editor')]",
+                "//a[contains(., 'Editor')]",
+                "//*[contains(@class, 'editor') and contains(., 'Flow')]"
+            ]
+            
+            for selector in selectors:
+                try:
+                    flow_editor_button = self.short_wait.until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    self.safe_click(flow_editor_button)
+                    print(f"Clicked 'Flow Editor' button using selector: {selector}")
+                    flow_editor_clicked = True
+                    time.sleep(config.MEDIUM_WAIT)
+                    break
+                except:
+                    continue
+            
+            if not flow_editor_clicked:
+                print("Warning: Could not find Flow Editor button, attempting to continue...")
             
         except Exception as e:
             print(f"Error in template navigation: {e}")
@@ -275,127 +327,269 @@ class LindyAutomation:
         print("Looking for 'Webhook Received' near the top of the page...")
         
         try:
-            # NEW: Look specifically for "Webhook Received" text near the top
-            time.sleep(2)  # Give page time to fully load
+            # Wait for page to fully load
+            time.sleep(3)
             
-            webhook_received_element = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH,
-                    "//*[contains(text(), 'Webhook Received') or contains(text(), 'webhook received')]"))
-            )
-            webhook_received_element.click()
-            print("Clicked 'Webhook Received' element")
-            time.sleep(config.SHORT_WAIT)
+            # Look specifically for "Webhook Received" text near the top
+            webhook_received_clicked = False
+            selectors = [
+                "//*[contains(text(), 'Webhook Received')]",
+                "//*[contains(text(), 'webhook received')]",
+                "//*[contains(text(), 'Webhook received')]",
+                "//div[contains(@class, 'webhook') and contains(., 'Received')]",
+                "//*[contains(., 'Webhook') and contains(., 'Received')]"
+            ]
             
-            # NEW: Click "Select an option..." dropdown
+            for selector in selectors:
+                try:
+                    webhook_received_element = self.short_wait.until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    self.safe_click(webhook_received_element)
+                    print(f"Clicked 'Webhook Received' element using selector: {selector}")
+                    webhook_received_clicked = True
+                    time.sleep(config.SHORT_WAIT)
+                    break
+                except:
+                    continue
+            
+            if not webhook_received_clicked:
+                print("Warning: Could not find 'Webhook Received', trying alternative approach...")
+                # Try to find any webhook-related element
+                webhook_elements = self.driver.find_elements(By.XPATH,
+                    "//*[contains(text(), 'webhook') or contains(text(), 'Webhook')]")
+                if webhook_elements:
+                    self.safe_click(webhook_elements[0])
+                    print("Clicked first webhook element found")
+                    time.sleep(config.SHORT_WAIT)
+            
+            # Click "Select an option..." dropdown
             print("Looking for 'Select an option...' dropdown...")
-            select_dropdown = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH,
-                    "//*[contains(text(), 'Select an option') or contains(@placeholder, 'Select an option')]"))
-            )
-            select_dropdown.click()
-            print("Clicked 'Select an option...' dropdown")
-            time.sleep(config.SHORT_WAIT)
+            dropdown_clicked = False
+            dropdown_selectors = [
+                "//*[contains(text(), 'Select an option')]",
+                "//select[contains(@placeholder, 'Select')]",
+                "//input[contains(@placeholder, 'Select an option')]",
+                "//div[contains(@class, 'select') and contains(., 'Select')]",
+                "//*[contains(@role, 'combobox')]"
+            ]
             
-            # NEW: Click "Create new..." option
+            for selector in dropdown_selectors:
+                try:
+                    select_dropdown = self.short_wait.until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    self.safe_click(select_dropdown)
+                    print(f"Clicked dropdown using selector: {selector}")
+                    dropdown_clicked = True
+                    time.sleep(config.SHORT_WAIT)
+                    break
+                except:
+                    continue
+            
+            if not dropdown_clicked:
+                print("Warning: Could not find dropdown, trying to type directly...")
+            
+            # Click "Create new..." option
             print("Looking for 'Create new...' option...")
-            create_new_option = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH,
-                    "//*[contains(text(), 'Create new') or contains(text(), 'create new')]"))
-            )
-            create_new_option.click()
-            print("Clicked 'Create new...' option")
-            time.sleep(config.SHORT_WAIT)
+            create_new_clicked = False
+            create_selectors = [
+                "//*[contains(text(), 'Create new')]",
+                "//*[contains(text(), 'create new')]",
+                "//option[contains(., 'Create new')]",
+                "//li[contains(., 'Create new')]",
+                "//div[contains(@class, 'option') and contains(., 'Create')]"
+            ]
             
-            # NEW: Type "Webhook" and press Enter
+            for selector in create_selectors:
+                try:
+                    create_new_option = self.short_wait.until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    self.safe_click(create_new_option)
+                    print(f"Clicked 'Create new...' using selector: {selector}")
+                    create_new_clicked = True
+                    time.sleep(config.SHORT_WAIT)
+                    break
+                except:
+                    continue
+            
+            if not create_new_clicked:
+                print("Warning: Could not find 'Create new' option, attempting to type directly...")
+            
+            # Type "Webhook" and press Enter
             print("Typing 'Webhook' and pressing Enter...")
-            # Find the active input field
-            active_input = self.driver.switch_to.active_element
-            active_input.send_keys("Webhook")
-            active_input.send_keys(Keys.RETURN)
-            print("Typed 'Webhook' and pressed Enter")
+            time.sleep(1)
+            
+            # Try to find input field or use active element
+            try:
+                # Look for visible input fields
+                input_fields = self.driver.find_elements(By.CSS_SELECTOR, "input[type='text']:not([disabled])")
+                input_used = False
+                
+                for input_field in input_fields:
+                    if input_field.is_displayed() and input_field.is_enabled():
+                        input_field.clear()
+                        input_field.send_keys("Webhook")
+                        input_field.send_keys(Keys.RETURN)
+                        print("Typed 'Webhook' in visible input field")
+                        input_used = True
+                        break
+                
+                if not input_used:
+                    # Use active element as fallback
+                    active_input = self.driver.switch_to.active_element
+                    active_input.send_keys("Webhook")
+                    active_input.send_keys(Keys.RETURN)
+                    print("Typed 'Webhook' in active element")
+                    
+            except Exception as e:
+                print(f"Error typing webhook name: {e}")
+            
             time.sleep(config.MEDIUM_WAIT)
             
-            # NEW: Click the webhook that was just created
+            # Click the webhook that was just created
             print("Looking for the newly created webhook...")
-            webhook_item = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH,
-                    "//*[contains(text(), 'Webhook') and not(contains(text(), 'Webhook Received'))]"))
-            )
-            webhook_item.click()
-            print("Clicked the newly created webhook")
-            time.sleep(config.SHORT_WAIT)
+            webhook_clicked = False
+            webhook_selectors = [
+                "//div[contains(text(), 'Webhook') and not(contains(text(), 'Webhook Received'))]",
+                "//li[contains(text(), 'Webhook') and not(contains(text(), 'Received'))]",
+                "//span[contains(text(), 'Webhook') and not(contains(text(), 'Received'))]",
+                "//*[text()='Webhook']"
+            ]
+            
+            for selector in webhook_selectors:
+                try:
+                    webhook_item = self.short_wait.until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    self.safe_click(webhook_item)
+                    print(f"Clicked newly created webhook using selector: {selector}")
+                    webhook_clicked = True
+                    time.sleep(config.SHORT_WAIT)
+                    break
+                except:
+                    continue
+            
+            if not webhook_clicked:
+                print("Warning: Could not find newly created webhook, continuing...")
             
             # Continue from generate secret button onwards
             # Copy the Lindy URL
+            print("Looking for Lindy URL...")
+            time.sleep(2)
+            
             try:
-                print("Looking for Lindy URL...")
                 # Look for URL field or copy button
                 url_elements = self.driver.find_elements(By.XPATH,
-                    "//input[contains(@value, 'https://') or contains(@placeholder, 'URL')]")
+                    "//input[contains(@value, 'https://')]")
                 
-                if url_elements:
-                    self.lindy_url = url_elements[0].get_attribute('value')
-                    print(f"Found Lindy URL: {self.lindy_url}")
-                else:
-                    # Try to find copy button
-                    copy_button = self.driver.find_element(By.XPATH,
+                for url_elem in url_elements:
+                    value = url_elem.get_attribute('value')
+                    if value and 'lindy' in value.lower():
+                        self.lindy_url = value
+                        print(f"Found Lindy URL: {self.lindy_url}")
+                        break
+                
+                if not self.lindy_url:
+                    # Try to find copy button for URL
+                    copy_buttons = self.driver.find_elements(By.XPATH,
                         "//button[contains(., 'Copy') or contains(@aria-label, 'Copy')]")
-                    copy_button.click()
-                    time.sleep(1)
-                    self.lindy_url = pyperclip.paste()
-                    print(f"Copied Lindy URL: {self.lindy_url}")
+                    if copy_buttons:
+                        self.safe_click(copy_buttons[0])
+                        time.sleep(1)
+                        self.lindy_url = pyperclip.paste()
+                        print(f"Copied Lindy URL: {self.lindy_url}")
+                        
             except Exception as e:
                 print(f"Error getting Lindy URL: {e}")
             
             # Create secret key/authorization token
             print("Creating authorization token...")
-            secret_key_button = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH,
-                    "//button[contains(., 'secret') or contains(., 'Secret') or contains(., 'Generate') or contains(., 'token') or contains(., 'Token')]"))
-            )
-            secret_key_button.click()
-            print("Clicked secret key button")
+            secret_button_clicked = False
+            secret_selectors = [
+                "//button[contains(., 'Generate secret')]",
+                "//button[contains(., 'generate secret')]",
+                "//button[contains(., 'Secret')]",
+                "//button[contains(., 'secret')]",
+                "//button[contains(., 'Generate')]",
+                "//button[contains(., 'Token')]",
+                "//button[contains(., 'token')]",
+                "//button[contains(., 'Auth')]"
+            ]
             
-            time.sleep(config.SHORT_WAIT)
+            for selector in secret_selectors:
+                try:
+                    secret_key_button = self.short_wait.until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    self.safe_click(secret_key_button)
+                    print(f"Clicked secret key button using selector: {selector}")
+                    secret_button_clicked = True
+                    time.sleep(config.SHORT_WAIT)
+                    break
+                except:
+                    continue
+            
+            if not secret_button_clicked:
+                print("Warning: Could not find secret key button")
             
             # Copy the secret key
+            time.sleep(2)
             try:
                 # Try to find the secret key value
                 secret_elements = self.driver.find_elements(By.CSS_SELECTOR,
                     "input[type='text'], input[type='password']")
                 
                 for element in secret_elements:
+                    if not element.is_displayed():
+                        continue
                     value = element.get_attribute('value')
-                    if value and len(value) > 10:
+                    if value and len(value) > 15:  # Secret keys are usually longer
                         self.auth_token = value
                         # Copy to clipboard
                         element.click()
                         self.driver.execute_script("arguments[0].select();", element)
+                        time.sleep(0.5)
+                        # Use Ctrl+C to copy
+                        element.send_keys(Keys.CONTROL, 'c')
+                        time.sleep(0.5)
                         pyperclip.copy(value)
                         print(f"Copied authorization token")
                         break
                 
                 if not self.auth_token:
                     # Try copy button
-                    copy_button = self.driver.find_element(By.XPATH,
+                    copy_buttons = self.driver.find_elements(By.XPATH,
                         "//button[contains(., 'Copy')]")
-                    copy_button.click()
-                    time.sleep(1)
-                    self.auth_token = pyperclip.paste()
-                    print(f"Copied authorization token via button")
+                    for btn in copy_buttons:
+                        if btn.is_displayed():
+                            self.safe_click(btn)
+                            time.sleep(1)
+                            self.auth_token = pyperclip.paste()
+                            print(f"Copied authorization token via button")
+                            break
                     
             except Exception as e:
                 print(f"Error copying secret key: {e}")
             
             # Click outside to close dialog
             time.sleep(config.SHORT_WAIT)
-            self.driver.find_element(By.TAG_NAME, 'body').click()
-            print("Clicked outside dialog to close")
+            try:
+                # Try pressing Escape key first
+                self.driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.ESCAPE)
+                print("Pressed Escape to close dialog")
+            except:
+                # Fallback to clicking body
+                self.driver.find_element(By.TAG_NAME, 'body').click()
+                print("Clicked outside dialog to close")
             
             time.sleep(config.SHORT_WAIT)
             
         except Exception as e:
             print(f"Error configuring webhook: {e}")
+            import traceback
+            traceback.print_exc()
             raise
     
     def deploy_lindy(self):
@@ -407,7 +601,7 @@ class LindyAutomation:
                 EC.element_to_be_clickable((By.XPATH,
                     "//button[contains(., 'Deploy') or contains(., 'deploy')]"))
             )
-            deploy_button.click()
+            self.safe_click(deploy_button)
             print("Clicked 'Deploy' button")
             
             time.sleep(config.MEDIUM_WAIT)
@@ -422,11 +616,18 @@ class LindyAutomation:
                 
         except Exception as e:
             print(f"Error deploying: {e}")
-            raise
+            # Don't raise - deployment might have succeeded even if button wasn't found
+            print("Continuing despite deployment error...")
     
     def configure_n8n(self):
         """Navigate to N8N and configure with Lindy details"""
         print(f"Navigating to N8N: {config.N8N_URL}")
+        
+        if not self.lindy_url or not self.auth_token:
+            print("ERROR: Missing Lindy URL or Auth Token!")
+            print(f"Lindy URL: {self.lindy_url}")
+            print(f"Auth Token: {self.auth_token}")
+            raise Exception("Cannot configure N8N without Lindy URL and Auth Token")
         
         self.driver.get(config.N8N_URL)
         time.sleep(config.MEDIUM_WAIT)
@@ -435,7 +636,7 @@ class LindyAutomation:
             # Find Lindy URL input
             lindy_url_input = self.wait.until(
                 EC.presence_of_element_located((By.XPATH,
-                    "//input[contains(@placeholder, 'Lindy URL') or contains(@name, 'lindy')]"))
+                    "//input[contains(@placeholder, 'Lindy URL') or contains(@name, 'lindy') or contains(@id, 'lindy')]"))
             )
             lindy_url_input.clear()
             lindy_url_input.send_keys(self.lindy_url)
@@ -443,7 +644,7 @@ class LindyAutomation:
             
             # Find Authorization Token input
             auth_token_input = self.driver.find_element(By.XPATH,
-                "//input[contains(@placeholder, 'Authorization') or contains(@placeholder, 'Token')]")
+                "//input[contains(@placeholder, 'Authorization') or contains(@placeholder, 'Token') or contains(@name, 'token') or contains(@name, 'auth')]")
             auth_token_input.clear()
             auth_token_input.send_keys(self.auth_token)
             print("Entered authorization token in N8N")
@@ -451,7 +652,7 @@ class LindyAutomation:
             # Click Save Configuration
             save_config_button = self.driver.find_element(By.XPATH,
                 "//button[contains(., 'Save Configuration') or contains(., 'Save')]")
-            save_config_button.click()
+            self.safe_click(save_config_button)
             print("Clicked 'Save Configuration' button")
             
             time.sleep(config.SHORT_WAIT)
@@ -463,7 +664,7 @@ class LindyAutomation:
             # Click Start Processing
             start_button = self.driver.find_element(By.XPATH,
                 "//button[contains(., 'Start Processing') or contains(., 'Start')]")
-            start_button.click()
+            self.safe_click(start_button)
             print("Clicked 'Start Processing' button")
             
             time.sleep(config.SHORT_WAIT)
@@ -497,7 +698,7 @@ class LindyAutomation:
                     EC.element_to_be_clickable((By.XPATH,
                         "//button[contains(., 'Delete') or contains(., 'delete')]"))
                 )
-                delete_button.click()
+                self.safe_click(delete_button)
                 print("Clicked delete account button")
                 
                 time.sleep(config.SHORT_WAIT)
@@ -507,7 +708,7 @@ class LindyAutomation:
                     EC.element_to_be_clickable((By.XPATH,
                         "//button[contains(., 'Confirm') or contains(., 'Delete') or contains(., 'Yes')]"))
                 )
-                confirm_button.click()
+                self.safe_click(confirm_button)
                 print("Confirmed account deletion")
                 
                 time.sleep(config.MEDIUM_WAIT)
@@ -519,12 +720,12 @@ class LindyAutomation:
                 settings_links = self.driver.find_elements(By.XPATH,
                     "//a[contains(., 'Settings') or contains(., 'Account')]")
                 if settings_links:
-                    settings_links[0].click()
+                    self.safe_click(settings_links[0])
                     time.sleep(config.SHORT_WAIT)
                     # Try again
                     delete_button = self.driver.find_element(By.XPATH,
                         "//button[contains(., 'Delete')]")
-                    delete_button.click()
+                    self.safe_click(delete_button)
                     
         except Exception as e:
             print(f"Error deleting account: {e}")
@@ -553,6 +754,8 @@ class LindyAutomation:
             
         except Exception as e:
             print(f"\n!!! Automation failed: {e}")
+            import traceback
+            traceback.print_exc()
             raise
         finally:
             print("Closing browser...")
