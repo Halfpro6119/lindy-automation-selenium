@@ -382,7 +382,7 @@ class LindyAutomationPlaywright:
             print(f"Error in template navigation: {e}")
             raise
     
-        async def configure_webhook(self):
+    async def configure_webhook(self):
         """Find webhook step and configure it"""
         print("Looking for 'Webhook Received' near the top of the page...")
         
@@ -390,7 +390,7 @@ class LindyAutomationPlaywright:
             # Wait for page to fully load
             await self.page.wait_for_timeout(3000)
             
-            # NEW: Look specifically for "Webhook Received" text near the top
+            # Look specifically for "Webhook Received" text near the top
             webhook_received_clicked = False
             selectors = [
                 "text='Webhook Received'",
@@ -420,7 +420,7 @@ class LindyAutomationPlaywright:
                     print("Clicked first webhook element found")
                     await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
             
-            # NEW: Click "Select an option..." dropdown
+            # Click "Select an option..." dropdown
             print("Looking for 'Select an option...' dropdown...")
             dropdown_clicked = False
             dropdown_selectors = [
@@ -445,7 +445,7 @@ class LindyAutomationPlaywright:
             if not dropdown_clicked:
                 print("Warning: Could not find dropdown, trying to type directly...")
             
-            # NEW: Click "Create new..." option
+            # Click "Create new..." option
             print("Looking for 'Create new...' option...")
             create_new_clicked = False
             create_selectors = [
@@ -470,7 +470,7 @@ class LindyAutomationPlaywright:
             if not create_new_clicked:
                 print("Warning: Could not find 'Create new' option, attempting to type directly...")
             
-            # NEW: Type "Webhook" and press Enter
+            # Type "Webhook" and press Enter
             print("Typing 'Webhook' and pressing Enter...")
             await self.page.wait_for_timeout(1000)
             
@@ -502,7 +502,7 @@ class LindyAutomationPlaywright:
             
             await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
             
-            # NEW: Click the webhook that was just created
+            # Click the webhook that was just created
             print("Looking for the newly created webhook...")
             webhook_clicked = False
             webhook_selectors = [
@@ -526,7 +526,6 @@ class LindyAutomationPlaywright:
             if not webhook_clicked:
                 print("Warning: Could not find newly created webhook, continuing...")
             
-            # Continue from generate secret button onwards
             # Copy the Lindy URL
             print("Looking for Lindy URL...")
             await self.page.wait_for_timeout(2000)
@@ -617,18 +616,30 @@ class LindyAutomationPlaywright:
             except Exception as e:
                 print(f"Error copying secret key: {e}")
             
-            # Click outside to close dialog
+            # UPDATED: Do NOT press Escape or click outside - stay on Webhook Received GUI
+            print("Staying on 'Webhook Received' GUI (not closing dialog)...")
             await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-            try:
-                # Press Escape key
-                await self.page.keyboard.press("Escape")
-                print("Pressed Escape to close dialog")
-            except:
-                # Fallback to clicking body
-                await self.page.click("body")
-                print("Clicked outside dialog to close")
             
-            await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
+            # UPDATED: Verify we're still on the Webhook Received page
+            try:
+                webhook_received_check = await self.page.query_selector_all("*:has-text('Webhook Received')")
+                if webhook_received_check:
+                    print("Confirmed: Still on 'Webhook Received' GUI")
+                else:
+                    print("Warning: May have navigated away from 'Webhook Received' GUI")
+                    # UPDATED: Try to navigate back to Webhook Received
+                    print("Attempting to navigate back to 'Webhook Received'...")
+                    for selector in selectors:
+                        try:
+                            webhook_received_element = await self.page.wait_for_selector(selector, timeout=10000)
+                            await webhook_received_element.click()
+                            print(f"Navigated back to 'Webhook Received' using selector: {selector}")
+                            await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
+                            break
+                        except:
+                            continue
+            except Exception as e:
+                print(f"Error verifying Webhook Received GUI: {e}")
             
         except Exception as e:
             print(f"Error configuring webhook: {e}")

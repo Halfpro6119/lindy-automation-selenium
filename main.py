@@ -394,7 +394,7 @@ class LindyAutomation:
             print(f"Error in template navigation: {e}")
             raise
     
-        def configure_webhook(self):
+    def configure_webhook(self):
         """Find webhook step and configure it"""
         print("Looking for 'Webhook Received' near the top of the page...")
         
@@ -546,7 +546,6 @@ class LindyAutomation:
             if not webhook_clicked:
                 print("Warning: Could not find newly created webhook, continuing...")
             
-            # Continue from generate secret button onwards
             # Copy the Lindy URL
             print("Looking for Lindy URL...")
             time.sleep(2)
@@ -645,18 +644,33 @@ class LindyAutomation:
             except Exception as e:
                 print(f"Error copying secret key: {e}")
             
-            # Click outside to close dialog
+            # UPDATED: Do NOT click outside or press Escape - stay on Webhook Received GUI
+            print("Staying on 'Webhook Received' GUI (not closing dialog)...")
             time.sleep(config.SHORT_WAIT)
-            try:
-                # Try pressing Escape key first
-                self.driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.ESCAPE)
-                print("Pressed Escape to close dialog")
-            except:
-                # Fallback to clicking body
-                self.driver.find_element(By.TAG_NAME, 'body').click()
-                print("Clicked outside dialog to close")
             
-            time.sleep(config.SHORT_WAIT)
+            # UPDATED: Verify we're still on the Webhook Received page
+            try:
+                webhook_received_check = self.driver.find_elements(By.XPATH,
+                    "//*[contains(text(), 'Webhook Received')]")
+                if webhook_received_check:
+                    print("Confirmed: Still on 'Webhook Received' GUI")
+                else:
+                    print("Warning: May have navigated away from 'Webhook Received' GUI")
+                    # UPDATED: Try to navigate back to Webhook Received
+                    print("Attempting to navigate back to 'Webhook Received'...")
+                    for selector in selectors:
+                        try:
+                            webhook_received_element = self.short_wait.until(
+                                EC.element_to_be_clickable((By.XPATH, selector))
+                            )
+                            self.safe_click(webhook_received_element)
+                            print(f"Navigated back to 'Webhook Received' using selector: {selector}")
+                            time.sleep(config.SHORT_WAIT)
+                            break
+                        except:
+                            continue
+            except Exception as e:
+                print(f"Error verifying Webhook Received GUI: {e}")
             
         except Exception as e:
             print(f"Error configuring webhook: {e}")
