@@ -57,25 +57,42 @@ class LindyAutomation:
         print("Starting Google sign-in process...")
         
         try:
-            # Navigate to Lindy
+            # Navigate to Lindy signup page
             self.driver.get(config.LINDY_SIGNUP_URL)
             time.sleep(config.SHORT_WAIT)
             
-            # Look for sign-in or sign-up button
+            # Look for "Sign up with Google" or "Sign in with Google" button
+            print("Looking for 'Sign up with Google' button...")
             try:
-                # Try to find "Sign in with Google" or similar button
-                google_signin_button = self.wait.until(
-                    EC.element_to_be_clickable((By.XPATH, 
-                        "//button[contains(., 'Google') or contains(., 'google') or contains(., 'Sign in')]"))
-                )
-                self.safe_click(google_signin_button)
-                print("Clicked Google sign-in button")
-            except TimeoutException:
-                print("Looking for alternative sign-in method...")
-                # Try alternative selectors
-                signin_button = self.driver.find_element(By.XPATH, 
-                    "//button[contains(@class, 'google') or contains(text(), 'Sign') or contains(@aria-label, 'Google')]")
-                self.safe_click(signin_button)
+                # Try multiple selectors for the Google sign-in button
+                google_signin_selectors = [
+                    "//button[contains(., 'Sign up with Google')]",
+                    "//button[contains(., 'Sign in with Google')]",
+                    "//button[contains(., 'Google')]",
+                    "//button[contains(@class, 'google')]",
+                    "//*[contains(text(), 'Sign up with Google')]",
+                    "//*[contains(text(), 'Sign in with Google')]"
+                ]
+                
+                google_button_clicked = False
+                for selector in google_signin_selectors:
+                    try:
+                        google_signin_button = self.wait.until(
+                            EC.element_to_be_clickable((By.XPATH, selector))
+                        )
+                        self.safe_click(google_signin_button)
+                        print(f"Clicked Google sign-in button using selector: {selector}")
+                        google_button_clicked = True
+                        break
+                    except TimeoutException:
+                        continue
+                
+                if not google_button_clicked:
+                    raise Exception("Could not find Google sign-in button")
+                    
+            except Exception as e:
+                print(f"Error finding Google button: {e}")
+                raise
             
             time.sleep(config.SHORT_WAIT)
             

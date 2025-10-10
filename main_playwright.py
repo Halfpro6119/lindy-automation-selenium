@@ -48,22 +48,41 @@ class LindyAutomationPlaywright:
         print("Starting Google sign-in process...")
         
         try:
-            # Navigate to Lindy
+            # Navigate to Lindy signup page
             await self.page.goto(config.LINDY_SIGNUP_URL)
             await self.page.wait_for_load_state('networkidle')
             
-            # Look for sign-in or sign-up button with Google
+            # Look for "Sign up with Google" or "Sign in with Google" button
+            print("Looking for 'Sign up with Google' button...")
             try:
-                print("Looking for Google sign-in button...")
-                google_button = await self.page.wait_for_selector(
-                    "button:has-text('Google'), button:has-text('google'), button:has-text('Sign in')",
-                    timeout=10000
-                )
-                await google_button.click()
-                print("Clicked Google sign-in button")
-            except PlaywrightTimeout:
-                print("Trying alternative selector...")
-                await self.page.click("button[class*='google']")
+                # Try multiple selectors for the Google sign-in button
+                google_signin_selectors = [
+                    "button:has-text('Sign up with Google')",
+                    "button:has-text('Sign in with Google')",
+                    "button:has-text('Google')",
+                    "button[class*='google']"
+                ]
+                
+                google_button_clicked = False
+                for selector in google_signin_selectors:
+                    try:
+                        google_button = await self.page.wait_for_selector(
+                            selector,
+                            timeout=10000
+                        )
+                        await google_button.click()
+                        print(f"Clicked Google sign-in button using selector: {selector}")
+                        google_button_clicked = True
+                        break
+                    except PlaywrightTimeout:
+                        continue
+                
+                if not google_button_clicked:
+                    raise Exception("Could not find Google sign-in button")
+                    
+            except Exception as e:
+                print(f"Error finding Google button: {e}")
+                raise
             
             await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
             
@@ -82,7 +101,7 @@ class LindyAutomationPlaywright:
             
             await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
             
-            # NEW: Handle "You're signing back in to Lindy" page
+            # Handle "You're signing back in to Lindy" page
             try:
                 print("Checking for 'Continue' button on sign-in page...")
                 continue_button = await self.page.wait_for_selector(
@@ -101,7 +120,7 @@ class LindyAutomationPlaywright:
             print(f"Error during Google sign-in: {e}")
             raise
     
-    async def fill_signup_form(self):
+        async def fill_signup_form(self):
         """Fill out the signup form if present"""
         print("Checking for signup form...")
         
