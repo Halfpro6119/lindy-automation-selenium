@@ -120,7 +120,7 @@ class LindyAutomationPlaywright:
             print(f"Error during Google sign-in: {e}")
             raise
     
-        async def fill_signup_form(self):
+    async def fill_signup_form(self):
         """Fill out the signup form if present"""
         print("Checking for signup form...")
         
