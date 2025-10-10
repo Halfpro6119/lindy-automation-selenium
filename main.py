@@ -78,6 +78,20 @@ class LindyAutomation:
             password_input.send_keys(Keys.RETURN)
             
             time.sleep(config.MEDIUM_WAIT)
+            
+            # NEW: Handle "You're signing back in to Lindy" page
+            try:
+                print("Checking for 'Continue' button on sign-in page...")
+                continue_button = self.wait.until(
+                    EC.element_to_be_clickable((By.XPATH,
+                        "//button[contains(., 'Continue') or contains(., 'continue')]"))
+                )
+                continue_button.click()
+                print("Clicked 'Continue' button on sign-in page")
+                time.sleep(config.MEDIUM_WAIT)
+            except TimeoutException:
+                print("No 'Continue' button found - proceeding...")
+            
             print("Google sign-in completed!")
             
         except Exception as e:
@@ -231,52 +245,90 @@ class LindyAutomation:
         
         # Add template to account
         try:
+            print("Looking for 'Add' button...")
             add_template_button = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH,
                     "//button[contains(., 'Add') or contains(., 'Use') or contains(., 'Install')]"))
             )
             add_template_button.click()
-            print("Added template to account")
+            print("Clicked 'Add' button")
             time.sleep(config.MEDIUM_WAIT)
-        except:
-            print("Template may already be added or button not found")
+            
+            # NEW: Wait for page to load and click "Flow Editor" button
+            print("Waiting for page to load and looking for 'Flow Editor' button...")
+            time.sleep(3)  # Wait a few seconds for the page to load
+            
+            flow_editor_button = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH,
+                    "//button[contains(., 'Flow Editor') or contains(., 'flow editor') or contains(., 'Editor')]"))
+            )
+            flow_editor_button.click()
+            print("Clicked 'Flow Editor' button")
+            time.sleep(config.MEDIUM_WAIT)
+            
+        except Exception as e:
+            print(f"Error in template navigation: {e}")
+            raise
     
     def configure_webhook(self):
         """Find webhook step and configure it"""
-        print("Looking for webhook step...")
+        print("Looking for 'Webhook Received' near the top of the page...")
         
         try:
-            # Look for webhook-related elements
-            webhook_elements = self.driver.find_elements(By.XPATH,
-                "//*[contains(text(), 'webhook') or contains(text(), 'Webhook')]")
+            # NEW: Look specifically for "Webhook Received" text near the top
+            time.sleep(2)  # Give page time to fully load
             
-            if webhook_elements:
-                print(f"Found {len(webhook_elements)} webhook elements")
-                webhook_elements[0].click()
-                time.sleep(config.SHORT_WAIT)
-            
-            # Click Create Webhook button
-            create_webhook_button = self.wait.until(
+            webhook_received_element = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH,
-                    "//button[contains(., 'Create Webhook') or contains(., 'Create webhook')]"))
+                    "//*[contains(text(), 'Webhook Received') or contains(text(), 'webhook received')]"))
             )
-            create_webhook_button.click()
-            print("Clicked 'Create Webhook' button")
-            
+            webhook_received_element.click()
+            print("Clicked 'Webhook Received' element")
             time.sleep(config.SHORT_WAIT)
             
-            # Name the webhook
-            webhook_name_input = self.wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='text']"))
+            # NEW: Click "Select an option..." dropdown
+            print("Looking for 'Select an option...' dropdown...")
+            select_dropdown = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH,
+                    "//*[contains(text(), 'Select an option') or contains(@placeholder, 'Select an option')]"))
             )
-            webhook_name_input.send_keys("Lead Processing Webhook")
-            webhook_name_input.send_keys(Keys.RETURN)
-            print("Named the webhook and pressed Enter")
+            select_dropdown.click()
+            print("Clicked 'Select an option...' dropdown")
+            time.sleep(config.SHORT_WAIT)
             
+            # NEW: Click "Create new..." option
+            print("Looking for 'Create new...' option...")
+            create_new_option = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH,
+                    "//*[contains(text(), 'Create new') or contains(text(), 'create new')]"))
+            )
+            create_new_option.click()
+            print("Clicked 'Create new...' option")
+            time.sleep(config.SHORT_WAIT)
+            
+            # NEW: Type "Webhook" and press Enter
+            print("Typing 'Webhook' and pressing Enter...")
+            # Find the active input field
+            active_input = self.driver.switch_to.active_element
+            active_input.send_keys("Webhook")
+            active_input.send_keys(Keys.RETURN)
+            print("Typed 'Webhook' and pressed Enter")
             time.sleep(config.MEDIUM_WAIT)
             
+            # NEW: Click the webhook that was just created
+            print("Looking for the newly created webhook...")
+            webhook_item = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH,
+                    "//*[contains(text(), 'Webhook') and not(contains(text(), 'Webhook Received'))]"))
+            )
+            webhook_item.click()
+            print("Clicked the newly created webhook")
+            time.sleep(config.SHORT_WAIT)
+            
+            # Continue from generate secret button onwards
             # Copy the Lindy URL
             try:
+                print("Looking for Lindy URL...")
                 # Look for URL field or copy button
                 url_elements = self.driver.find_elements(By.XPATH,
                     "//input[contains(@value, 'https://') or contains(@placeholder, 'URL')]")
@@ -299,7 +351,7 @@ class LindyAutomation:
             print("Creating authorization token...")
             secret_key_button = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH,
-                    "//button[contains(., 'secret') or contains(., 'Secret') or contains(., 'token') or contains(., 'Token')]"))
+                    "//button[contains(., 'secret') or contains(., 'Secret') or contains(., 'Generate') or contains(., 'token') or contains(., 'Token')]"))
             )
             secret_key_button.click()
             print("Clicked secret key button")
