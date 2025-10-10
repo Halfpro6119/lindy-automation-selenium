@@ -19,29 +19,63 @@ class LindyAutomationPlaywright:
         self.page = None
         self.lindy_url = None
         self.auth_token = None
+        self.playwright = None
         
     async def setup(self):
-        """Setup browser with visible window"""
-        print("Setting up browser...")
-        playwright = await async_playwright().start()
+        """Setup browser with stealth configuration"""
+        print("Setting up browser with stealth mode...")
+        self.playwright = await async_playwright().start()
         
-        # Launch browser in headed mode (visible)
-        self.browser = await playwright.chromium.launch(
-            headless=False,  # Set to False to see the browser
+        # Launch browser with stealth args
+        self.browser = await self.playwright.chromium.launch(
+            headless=True,
             args=[
-                '--start-maximized',
-                '--disable-blink-features=AutomationControlled'
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--start-maximized'
             ]
         )
         
-        # Create context with viewport
+        # Create context with realistic browser fingerprint
         self.context = await self.browser.new_context(
             viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            locale='en-US',
+            timezone_id='America/New_York',
+            storage_state=None,
+            extra_http_headers={
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
         )
         
         self.page = await self.context.new_page()
-        print("Browser setup complete!")
+        
+        # Inject scripts to hide automation
+        await self.page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+            });
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5],
+            });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en'],
+            });
+            window.chrome = {
+                runtime: {},
+            };
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+        """)
+        
+        print("Browser setup complete with stealth mode!")
         
     async def google_signin(self):
         """Sign in to Google account"""
@@ -51,6 +85,36 @@ class LindyAutomationPlaywright:
             # Navigate to Lindy signup page
             await self.page.goto(config.LINDY_SIGNUP_URL)
             await self.page.wait_for_load_state('networkidle')
+            
+            # Check if already logged in (if we see workspace page)
+            try:
+                # Look for signs of being logged in
+                workspace_indicator = await self.page.query_selector("text=/workspace/i, button:has-text('New Agent')")
+                if workspace_indicator:
+                    print("Already logged in, logging out first...")
+                    # Try to find and click the menu/settings
+                    try:
+                        menu_button = await self.page.wait_for_selector("button[aria-label*='menu'], button[aria-label*='Menu'], [class*='menu'], [class*='avatar']", timeout=5000)
+                        await menu_button.click()
+                        await self.page.wait_for_timeout(2000)
+                        
+                        # Look for logout/sign out option
+                        logout_button = await self.page.wait_for_selector("text=/sign out/i, text=/log out/i, button:has-text('Sign out')", timeout=5000)
+                        await logout_button.click()
+                        await self.page.wait_for_timeout(3000)
+                        print("Logged out successfully")
+                        
+                        # Navigate back to signup page
+                        await self.page.goto(config.LINDY_SIGNUP_URL)
+                        await self.page.wait_for_load_state('networkidle')
+                    except Exception as e:
+                        print(f"Could not logout automatically: {e}")
+                        print("Clearing cookies and reloading...")
+                        await self.context.clear_cookies()
+                        await self.page.goto(config.LINDY_SIGNUP_URL)
+                        await self.page.wait_for_load_state('networkidle')
+            except Exception as e:
+                print(f"Not logged in, proceeding with signup: {e}")
             
             # Look for "Sign up with Google" or "Sign in with Google" button
             print("Looking for 'Sign up with Google' button...")
@@ -89,14 +153,32 @@ class LindyAutomationPlaywright:
             # Handle Google login page
             print("Entering email...")
             await self.page.wait_for_selector("input[type='email']", timeout=30000)
-            await self.page.fill("input[type='email']", config.GOOGLE_EMAIL)
+            await self.page.type("input[type='email']", config.GOOGLE_EMAIL, delay=100)
             await self.page.press("input[type='email']", "Enter")
             
             await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
             
+            # Check for Google blocking automation
+            try:
+                page_text = await self.page.text_content("body")
+                if "Couldn't sign you in" in page_text or "This browser or app may not be secure" in page_text:
+                    print("\n" + "="*70)
+                    print("ERROR: Google detected automation and blocked sign-in!")
+                    print("="*70)
+                    print("\nThis is a known issue with Google's security measures.")
+                    print("\nPossible solutions:")
+                    print("1. Use a different authentication method (email/password directly on Lindy)")
+                    print("2. Manually log in once to establish trust")
+                    print("3. Use OAuth tokens with proper credentials")
+                    print("4. Contact Lindy support for API access")
+                    print("\nThe automation will continue to try, but may fail...")
+                    print("="*70 + "\n")
+            except:
+                pass
+            
             print("Entering password...")
             await self.page.wait_for_selector("input[type='password']", timeout=30000)
-            await self.page.fill("input[type='password']", config.GOOGLE_PASSWORD)
+            await self.page.type("input[type='password']", config.GOOGLE_PASSWORD, delay=100)
             await self.page.press("input[type='password']", "Enter")
             
             await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
@@ -815,8 +897,15 @@ class LindyAutomationPlaywright:
             raise
         finally:
             print("Closing browser...")
-            await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
-            await self.browser.close()
+            try:
+                if self.page:
+                    await self.page.wait_for_timeout(config.SHORT_WAIT * 1000)
+                if self.browser:
+                    await self.browser.close()
+                if self.playwright:
+                    await self.playwright.stop()
+            except Exception as e:
+                print(f"Error during cleanup: {e}")
 
 
 async def main():
