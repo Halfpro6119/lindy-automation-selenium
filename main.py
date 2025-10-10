@@ -296,17 +296,72 @@ class LindyAutomation:
         # Add template to account
         try:
             print("Looking for 'Add' button...")
-            add_template_button = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH,
-                    "//button[contains(., 'Add') or contains(., 'Use') or contains(., 'Install')]"))
-            )
-            self.safe_click(add_template_button)
-            print("Clicked 'Add' button")
+            
+            # Wait for page to fully load
+            time.sleep(3)
+            
+            # Try multiple strategies to find and click the Add button
+            add_button_clicked = False
+            
+            # Strategy 1: Find button with exact text "Add"
+            add_selectors = [
+                "//button[text()='Add']",
+                "//button[normalize-space(.)='Add']",
+                "//button[contains(@class, 'bg-blue') and contains(., 'Add')]",
+                "//button[@type='button' and text()='Add']",
+                "//button[contains(., 'Add')]"
+            ]
+            
+            for selector in add_selectors:
+                try:
+                    print(f"Trying selector: {selector}")
+                    add_button = self.wait.until(
+                        EC.presence_of_element_located((By.XPATH, selector))
+                    )
+                    
+                    # Scroll the button into view
+                    self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", add_button)
+                    time.sleep(2)
+                    
+                    # Wait for it to be clickable
+                    add_button = self.wait.until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    
+                    # Try to click
+                    self.safe_click(add_button)
+                    print(f"Clicked 'Add' button using selector: {selector}")
+                    add_button_clicked = True
+                    break
+                    
+                except Exception as e:
+                    print(f"Selector {selector} failed: {e}")
+                    continue
+            
+            if not add_button_clicked:
+                # Last resort: Find all buttons and click the one with text "Add"
+                print("Trying last resort method...")
+                all_buttons = self.driver.find_elements(By.TAG_NAME, "button")
+                for btn in all_buttons:
+                    try:
+                        if btn.text.strip() == "Add" and btn.is_displayed():
+                            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", btn)
+                            time.sleep(2)
+                            self.safe_click(btn)
+                            print("Clicked 'Add' button using last resort method")
+                            add_button_clicked = True
+                            break
+                    except:
+                        continue
+            
+            if not add_button_clicked:
+                raise Exception("Could not find or click the Add button")
+            
             time.sleep(config.MEDIUM_WAIT)
             
             # Wait for page to load and click "Flow Editor" button
             print("Waiting for page to load and looking for 'Flow Editor' button...")
-            time.sleep(5)  # Increased wait time for page to fully load
+            time.sleep(5)
             
             # Try multiple selectors for Flow Editor button
             flow_editor_clicked = False
@@ -339,7 +394,7 @@ class LindyAutomation:
             print(f"Error in template navigation: {e}")
             raise
     
-    def configure_webhook(self):
+        def configure_webhook(self):
         """Find webhook step and configure it"""
         print("Looking for 'Webhook Received' near the top of the page...")
         

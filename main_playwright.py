@@ -284,17 +284,72 @@ class LindyAutomationPlaywright:
         # Add template to account
         try:
             print("Looking for 'Add' button...")
-            add_template_button = await self.page.wait_for_selector(
-                "button:has-text('Add'), button:has-text('Use'), button:has-text('Install')",
-                timeout=30000
-            )
-            await add_template_button.click()
-            print("Clicked 'Add' button")
+            
+            # Wait for page to fully load
+            await self.page.wait_for_timeout(3000)
+            
+            # Try multiple strategies to find and click the Add button
+            add_button_clicked = False
+            
+            # Strategy 1: Find button with exact text "Add"
+            add_selectors = [
+                "button:has-text('Add')",
+                "button >> text='Add'",
+                "button.bg-blue-9:has-text('Add')",
+                "button[type='button']:has-text('Add')"
+            ]
+            
+            for selector in add_selectors:
+                try:
+                    print(f"Trying selector: {selector}")
+                    
+                    # Wait for the button to be visible
+                    add_button = await self.page.wait_for_selector(
+                        selector,
+                        timeout=10000,
+                        state='visible'
+                    )
+                    
+                    # Scroll into view
+                    await add_button.scroll_into_view_if_needed()
+                    await self.page.wait_for_timeout(2000)
+                    
+                    # Click the button
+                    await add_button.click()
+                    print(f"Clicked 'Add' button using selector: {selector}")
+                    add_button_clicked = True
+                    break
+                    
+                except Exception as e:
+                    print(f"Selector {selector} failed: {e}")
+                    continue
+            
+            if not add_button_clicked:
+                # Last resort: Find all buttons and click the one with text "Add"
+                print("Trying last resort method...")
+                all_buttons = await self.page.locator("button").all()
+                for btn in all_buttons:
+                    try:
+                        text = await btn.text_content()
+                        is_visible = await btn.is_visible()
+                        if text and text.strip() == "Add" and is_visible:
+                            await btn.scroll_into_view_if_needed()
+                            await self.page.wait_for_timeout(2000)
+                            await btn.click()
+                            print("Clicked 'Add' button using last resort method")
+                            add_button_clicked = True
+                            break
+                    except:
+                        continue
+            
+            if not add_button_clicked:
+                raise Exception("Could not find or click the Add button")
+            
             await self.page.wait_for_timeout(config.MEDIUM_WAIT * 1000)
             
-            # NEW: Wait for page to load and click "Flow Editor" button
+            # Wait for page to load and click "Flow Editor" button
             print("Waiting for page to load and looking for 'Flow Editor' button...")
-            await self.page.wait_for_timeout(5000)  # Wait 5 seconds for page to fully load
+            await self.page.wait_for_timeout(5000)
             
             # Try multiple selectors for Flow Editor button
             flow_editor_clicked = False
@@ -308,7 +363,10 @@ class LindyAutomationPlaywright:
             
             for selector in selectors:
                 try:
-                    flow_editor_button = await self.page.wait_for_selector(selector, timeout=10000)
+                    flow_editor_button = await self.page.wait_for_selector(
+                        selector,
+                        timeout=10000
+                    )
                     await flow_editor_button.click()
                     print(f"Clicked 'Flow Editor' button using selector: {selector}")
                     flow_editor_clicked = True
@@ -324,7 +382,7 @@ class LindyAutomationPlaywright:
             print(f"Error in template navigation: {e}")
             raise
     
-    async def configure_webhook(self):
+        async def configure_webhook(self):
         """Find webhook step and configure it"""
         print("Looking for 'Webhook Received' near the top of the page...")
         
