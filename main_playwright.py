@@ -224,6 +224,18 @@ class LindyAutomationPlaywright:
             current_url = self.page.url
             print(f"Current URL after adding template: {current_url}")
             
+            # Modify URL from /tasks to /editor
+            if '/tasks' in current_url:
+                editor_url = current_url.replace('/tasks', '/editor')
+                print(f"Navigating to editor view: {editor_url}")
+                await self.page.goto(editor_url, wait_until='networkidle', timeout=60000)
+                await self.page.wait_for_timeout(3000)
+                print("✓ Successfully navigated to editor view")
+                
+                # Take screenshot of editor view
+                await self.page.screenshot(path='screenshot_2b_editor_view.png')
+                print("Screenshot saved: screenshot_2b_editor_view.png")
+            
             return True
             
         except Exception as e:
