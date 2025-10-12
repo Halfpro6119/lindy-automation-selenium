@@ -258,8 +258,25 @@ class LindyAutomationPlaywright:
             if '/tasks' in current_url:
                 editor_url = current_url.replace('/tasks', '/editor')
                 print(f"→ Navigating to editor: {editor_url}")
-                await self.page.goto(editor_url, wait_until='networkidle', timeout=60000)
-                await self.page.wait_for_timeout(3000)
+                
+                # Use 'load' instead of 'networkidle' to avoid timeout
+                try:
+                    await self.page.goto(editor_url, wait_until='load', timeout=30000)
+                    print("✓ Editor page loaded (initial load)")
+                    
+                    # Wait for the page to be more stable
+                    await self.page.wait_for_timeout(5000)
+                    
+                    # Try to wait for network idle with a shorter timeout
+                    try:
+                        await self.page.wait_for_load_state('networkidle', timeout=10000)
+                        print("✓ Network idle achieved")
+                    except:
+                        print("→ Network still active, but continuing anyway")
+                    
+                except PlaywrightTimeout:
+                    print("→ Page load timeout, but page may still be usable")
+                
                 print("✓ Navigated to editor view")
                 
                 await self.page.screenshot(path='screenshot_2b_editor_view.png', full_page=True)
