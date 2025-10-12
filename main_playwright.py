@@ -178,205 +178,91 @@ class LindyAutomationPlaywright:
             print("✓ Template page loaded")
             
             # Wait for page to fully load
-            print("→ Waiting 5 seconds for page to fully load...")
             await self.page.wait_for_timeout(5000)
             
-            # Verify we're on the right page
-            current_url = self.page.url
-            print(f"→ Verifying URL: {current_url}")
+            # Take screenshot
+            await self.page.screenshot(path='screenshot_1_template_page.png', full_page=True)
+            print("→ Screenshot saved: screenshot_1_template_page.png")
             
             # Check if we need to login
+            current_url = self.page.url
             if 'login' in current_url or 'signin' in current_url or 'signup' in current_url:
                 print("✗ ERROR: Not logged in!")
                 return False
             
-            print("✓ URL verified")
+            print(f"→ Current URL: {current_url}")
             
-            # Take screenshot before looking for button
-            await self.page.screenshot(path='screenshot_1_template_page.png', full_page=True)
-            print("→ Screenshot saved: screenshot_1_template_page.png")
+            # Find and click the Add button
+            # Use JavaScript to find and click the button to avoid any Playwright click issues
+            print("→ Looking for Add button...")
             
-            # Current URL for debugging
-            print(f"→ Current URL before button search: {current_url}")
-            
-            # Wait for the template modal/dialog to appear
-            # The template details are usually shown in a modal or specific container
-            print("\n→ Looking for 'Add' button...")
-            
-            # Try multiple strategies to find the correct Add button
-            add_button = None
-            
-            # Strategy 1: Look for button within a dialog/modal
-            print("  Trying selector: [role='dialog'] button:has-text('Add')")
-            try:
-                add_button = await self.page.wait_for_selector("[role='dialog'] button:has-text('Add')", timeout=3000)
-                if add_button:
-                    print("✓ Found Add button in dialog")
-            except:
-                pass
-            
-            # Strategy 2: Look for button with specific data attributes or classes
-            if not add_button:
-                print("  Trying selector: button[class*='template'] >> text='Add'")
-                try:
-                    add_button = await self.page.wait_for_selector("button[class*='template'] >> text='Add'", timeout=3000)
-                    if add_button:
-                        print("✓ Found Add button with template class")
-                except:
-                    pass
-            
-            # Strategy 3: Find all buttons with "Add" and filter by visibility and position
-            if not add_button:
-                print("  Trying to find all 'Add' buttons and selecting the visible one...")
-                try:
-                    all_add_buttons = await self.page.query_selector_all("button:has-text('Add')")
-                    print(f"  Found {len(all_add_buttons)} buttons with 'Add' text")
+            clicked = await self.page.evaluate("""
+                () => {
+                    // Find all buttons
+                    const buttons = Array.from(document.querySelectorAll('button'));
                     
-                    # Filter for visible buttons in the center of the page
-                    for i, btn in enumerate(all_add_buttons):
-                        is_visible = await btn.is_visible()
-                        box = await btn.bounding_box()
+                    // Find button with exact text "Add"
+                    const addButton = buttons.find(btn => {
+                        const text = btn.textContent.trim();
+                        const rect = btn.getBoundingClientRect();
                         
-                        if is_visible and box:
-                            print(f"  Button {i}: visible={is_visible}, x={box['x']:.0f}, y={box['y']:.0f}, width={box['width']:.0f}, height={box['height']:.0f}")
-                            
-                            # The template Add button is usually in the center/right area of the page
-                            # and not in the top navigation (y > 100)
-                            if box['y'] > 100 and box['x'] > 300:
-                                add_button = btn
-                                print(f"✓ Selected button {i} as the template Add button")
-                                break
-                except Exception as e:
-                    print(f"  Error finding buttons: {e}")
-            
-            # Strategy 4: Look for specific button text variations
-            if not add_button:
-                selectors = [
-                    "button:has-text('Use template')",
-                    "button:has-text('Use this template')",
-                    "button:has-text('Add to workspace')",
-                    "button:has-text('Add template')"
-                ]
-                
-                for selector in selectors:
-                    print(f"  Trying selector: {selector}")
-                    try:
-                        add_button = await self.page.wait_for_selector(selector, timeout=3000)
-                        if add_button:
-                            print(f"✓ Found Add button with selector: {selector}")
-                            break
-                    except:
-                        continue
-            
-            # Strategy 5: Use JavaScript to find the button more precisely
-            if not add_button:
-                print("  Trying JavaScript approach...")
-                try:
-                    add_button = await self.page.evaluate_handle("""
-                        () => {
-                            const buttons = Array.from(document.querySelectorAll('button'));
-                            // Find button with "Add" text that's not in navigation
-                            const addButton = buttons.find(btn => {
-                                const text = btn.textContent.trim();
-                                const rect = btn.getBoundingClientRect();
-                                // Must contain "Add", be visible, and be in main content area
-                                return text === 'Add' && 
-                                       rect.y > 100 && 
-                                       rect.x > 300 &&
-                                       window.getComputedStyle(btn).display !== 'none';
-                            });
-                            return addButton;
+                        // Log all buttons with "Add" for debugging
+                        if (text.includes('Add')) {
+                            console.log('Found button:', text, 'at position:', rect.x, rect.y);
                         }
-                    """)
+                        
+                        // Find the Add button that's visible and in the main content area
+                        // Not in the top navigation (y > 150) and visible
+                        return text === 'Add' && 
+                               rect.y > 150 && 
+                               rect.width > 0 && 
+                               rect.height > 0 &&
+                               window.getComputedStyle(btn).visibility === 'visible';
+                    });
                     
-                    if add_button:
-                        print("✓ Found Add button using JavaScript")
-                except Exception as e:
-                    print(f"  JavaScript approach failed: {e}")
+                    if (addButton) {
+                        console.log('Clicking Add button at:', addButton.getBoundingClientRect());
+                        addButton.click();
+                        return true;
+                    }
+                    
+                    return false;
+                }
+            """)
             
-            if not add_button:
-                print("✗ ERROR: Could not find Add button")
-                await self.page.screenshot(path='screenshot_error_no_add_button.png', full_page=True)
+            if clicked:
+                print("✓ Clicked Add button")
+            else:
+                print("✗ Could not find Add button")
                 return False
             
-            # Get button position before clicking
-            try:
-                box = await add_button.bounding_box()
-                if box:
-                    print(f"→ Add button position: x={box['x']:.0f}, y={box['y']:.0f}")
-            except:
-                pass
-            
-            # URL before clicking
-            print(f"→ URL before clicking Add button: {self.page.url}")
-            
-            # Click the Add button
-            print("\n→ Clicking 'Add' button...")
-            try:
-                # Try normal click first
-                await add_button.click(timeout=5000)
-                print("✓ Clicked Add button (normal click)")
-            except:
-                # If normal click fails, try force click
-                try:
-                    await add_button.click(force=True, timeout=5000)
-                    print("✓ Clicked Add button (force click)")
-                except Exception as e:
-                    print(f"✗ Failed to click: {e}")
-                    # Try JavaScript click as last resort
-                    await self.page.evaluate("(button) => button.click()", add_button)
-                    print("✓ Clicked Add button (JavaScript click)")
-            
-            # Wait for navigation or modal to close
+            # Wait for navigation
             await self.page.wait_for_timeout(5000)
             
-            # Check URL after clicking
+            # Check new URL
             current_url = self.page.url
-            print(f"→ URL after clicking Add button: {current_url}")
+            print(f"→ URL after clicking: {current_url}")
             
-            # Take screenshot after clicking
+            # Take screenshot
             await self.page.screenshot(path='screenshot_2_after_add.png', full_page=True)
             print("→ Screenshot saved: screenshot_2_after_add.png")
             
-            # Verify we navigated to the template page (not back to home)
-            if '/home' in current_url and 'templateId' not in current_url:
-                print("✗ WARNING: Returned to home page - Add button click may have failed")
-                print("→ Attempting to navigate to template again...")
-                
-                # Try to find the template in the workspace
-                await self.page.wait_for_timeout(3000)
-                
-                # Look for the newly added template
-                try:
-                    # Templates are usually shown as cards or list items
-                    template_link = await self.page.wait_for_selector("a[href*='/editor'], a[href*='/tasks']", timeout=10000)
-                    if template_link:
-                        print("✓ Found template link, clicking...")
-                        await template_link.click()
-                        await self.page.wait_for_timeout(3000)
-                        current_url = self.page.url
-                        print(f"→ Navigated to: {current_url}")
-                except Exception as e:
-                    print(f"✗ Could not find template: {e}")
-                    return False
-            
-            # Modify URL from /tasks to /editor if needed
+            # Navigate to editor view if we're on tasks view
             if '/tasks' in current_url:
                 editor_url = current_url.replace('/tasks', '/editor')
-                print(f"→ Navigating to editor view: {editor_url}")
+                print(f"→ Navigating to editor: {editor_url}")
                 await self.page.goto(editor_url, wait_until='networkidle', timeout=60000)
                 await self.page.wait_for_timeout(3000)
-                print("✓ Successfully navigated to editor view")
+                print("✓ Navigated to editor view")
                 
-                # Take screenshot of editor view
                 await self.page.screenshot(path='screenshot_2b_editor_view.png', full_page=True)
                 print("→ Screenshot saved: screenshot_2b_editor_view.png")
             
-            print("\n✓ Template added successfully")
+            print("✓ Template added successfully")
             return True
             
         except Exception as e:
-            print(f"\n✗ Error adding template: {e}")
+            print(f"✗ Error adding template: {e}")
             import traceback
             traceback.print_exc()
             await self.page.screenshot(path='screenshot_error_template.png', full_page=True)
