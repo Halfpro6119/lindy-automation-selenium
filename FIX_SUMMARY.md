@@ -1,92 +1,90 @@
-# Fix Summary: Prevent URL Redirect When Adding Template
+# Fix Summary: Add Button Click Issue
 
 ## Problem
-The automation was experiencing an unwanted URL redirect when navigating to the template page:
+The automation was clicking the wrong "Add" button, causing it to navigate back to the home page instead of adding the template to the account.
 
-**Current Flow (Before Fix):**
-```
-→ Navigating to template: https://chat.lindy.ai/home/?templateId=68e5dd479651421f3052eaa6
-✓ Template page loaded
-→ Waiting 5 seconds for page to fully load...
-→ Verifying URL: https://chat.lindy.ai/rileys-workspace-5/home?templateId=68e5dd479651421f3052eaa6
-                                    ↑ REDIRECTED TO WORKSPACE URL
-✓ URL verified
-→ Current URL before button search: https://chat.lindy.ai/rileys-workspace-5/home
-                                                                              ↑ LOST templateId!
-```
+## Root Cause
+The selector `button:has-text('Add')` was finding the first button with "Add" text on the page, which could be:
+- A button in the navigation menu
+- A button in the sidebar
+- Any other "Add" button that appears before the template's Add button
 
 ## Solution
-Added redirect detection and recovery logic in the `add_template()` function:
+Implemented a multi-strategy approach to find the correct Add button:
 
-### Key Changes (Lines 186-201):
-1. Changed `wait_until='networkidle'` to `wait_until='domcontentloaded'` to prevent automatic redirects
-2. Added check to detect if URL was redirected away from template
-3. If redirect detected, navigate back to the original template URL
-
+### Strategy 1: Look for button within a dialog/modal
 ```python
-# Navigate to template URL
-await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='domcontentloaded', timeout=60000)
-print("✓ Template page loaded")
-
-# Wait 5 seconds for page to fully load
-print("→ Waiting 5 seconds for page to fully load...")
-await self.page.wait_for_timeout(5000)
-
-# Verify we are on the correct URL
-current_url = self.page.url
-print(f"→ Verifying URL: {current_url}")
-
-# Check if we got redirected away from the template
-if "templateId" not in current_url:
-    print(f"WARNING: URL was redirected! Current: {current_url}")
-    print(f"→ Navigating back to template URL: {config.LINDY_TEMPLATE_URL}")
-    await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='domcontentloaded', timeout=60000)
-    await self.page.wait_for_timeout(3000)
-    current_url = self.page.url
-    print(f"→ New URL: {current_url}")
-
-print("✓ URL verified")
+add_button = await self.page.wait_for_selector("[role='dialog'] button:has-text('Add')", timeout=3000)
 ```
 
-## Expected Flow (After Fix)
-```
-→ Navigating to template: https://chat.lindy.ai/home/?templateId=68e5dd479651421f3052eaa6
-✓ Template page loaded
-→ Waiting 5 seconds for page to fully load...
-→ Verifying URL: https://chat.lindy.ai/home/?templateId=68e5dd479651421f3052eaa6
-                                    ↑ STAYS ON TEMPLATE URL
-✓ URL verified
-→ Current URL before button search: https://chat.lindy.ai/home/?templateId=68e5dd479651421f3052eaa6
-                                                                ↑ templateId PRESERVED!
-
-→ Looking for 'Add' button...
-  Trying selector: button:has-text('Add')
-✓ Found Add button with selector: button:has-text('Add')
-→ URL before clicking Add button: https://chat.lindy.ai/home/?templateId=68e5dd479651421f3052eaa6
-
-→ Clicking 'Add' button...
-✓ Clicked Add button (force click)
-✓ Template added to account!
-✓ Screenshot saved: screenshot_2_after_add.png
+### Strategy 2: Look for button with template-specific classes
+```python
+add_button = await self.page.wait_for_selector("button[class*='template'] >> text='Add'", timeout=3000)
 ```
 
-## Additional Changes
-- Removed unnecessary modal checking code that could trigger navigation
-- Removed screenshot before URL verification to avoid timing issues
-- Streamlined the URL verification process
+### Strategy 3: Find all "Add" buttons and filter by position
+- Finds all buttons with "Add" text
+- Filters for visible buttons
+- Selects buttons that are:
+  - Below y=100 (not in top navigation)
+  - To the right of x=300 (in main content area)
+- This ensures we get the template Add button in the center of the page
 
-## Commit Details
-- **Commit Hash:** 788ef18
-- **Commit Message:** "Fix: Prevent URL redirect when adding template - stay on templateId URL"
-- **Date:** October 12, 2025
-- **Files Changed:** main_playwright_headed.py (20 insertions, 36 deletions)
+### Strategy 4: Try alternative button text
+- "Use template"
+- "Use this template"
+- "Add to workspace"
+- "Add template"
 
-## Repository
-https://github.com/Halfpro6119/lindy-automation-selenium/tree/main
+### Strategy 5: JavaScript-based selection
+Uses JavaScript to find the button with precise criteria:
+```javascript
+const addButton = buttons.find(btn => {
+    const text = btn.textContent.trim();
+    const rect = btn.getBoundingClientRect();
+    return text === 'Add' && 
+           rect.y > 100 && 
+           rect.x > 300 &&
+           window.getComputedStyle(btn).display !== 'none';
+});
+```
 
-## Testing
-To test the fix:
-1. Pull the latest changes from the repository
-2. Run the automation: `python main_playwright_headed.py`
-3. Observe that the URL stays on the template page with templateId parameter
-4. Verify the Add button is found and clicked successfully
+## Additional Improvements
+
+1. **Better Logging**: Added detailed logging to show:
+   - Which strategy found the button
+   - Button position (x, y coordinates)
+   - URL before and after clicking
+   - Number of buttons found
+
+2. **Verification**: After clicking, the code now verifies:
+   - If we returned to home page (indicates failure)
+   - If we need to navigate to the template editor
+   - If the template was successfully added
+
+3. **Fallback Recovery**: If the click fails and we return to home:
+   - Attempts to find the newly added template in the workspace
+   - Clicks on it to navigate to the editor
+
+4. **Full-page Screenshots**: Changed to full-page screenshots for better debugging
+
+## Testing Recommendations
+
+1. Run the automation and check the logs for:
+   - Which strategy successfully found the button
+   - The button's position coordinates
+   - URL changes after clicking
+
+2. Review the screenshots:
+   - `screenshot_1_template_page.png` - Shows the template page before clicking
+   - `screenshot_2_after_add.png` - Shows the page after clicking
+   - `screenshot_2b_editor_view.png` - Shows the editor view (if applicable)
+
+3. If the issue persists, the logs will show exactly which buttons were found and their positions, making it easier to adjust the selection criteria.
+
+## Files Modified
+- `main_playwright.py` - Updated `add_template()` function with improved button selection logic
+
+## Commit
+- Commit: c7f9e96
+- Message: "Fix Add button click issue - improved selector strategy to find correct template Add button"
