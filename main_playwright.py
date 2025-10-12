@@ -322,6 +322,15 @@ class LindyAutomationPlaywright:
                 print(f"✓ Found existing webhook URL: {self.lindy_url}")
             else:
                 # Create new webhook
+                # Click "Select an option" button before creating webhook
+                select_option_btn = await self.page.query_selector("button:has-text('Select an option'), button:has-text('select an option')")
+                if select_option_btn:
+                    await select_option_btn.click()
+                    await self.page.wait_for_timeout(2000)
+                    print("✓ Clicked Select an option button")
+                else:
+                    print("⚠ Select an option button not found, continuing...")
+                
                 create_btn = await self.page.query_selector("button:has-text('Create Webhook'), button:has-text('Create webhook')")
                 if not create_btn:
                     print("ERROR: Could not find Create Webhook button")
