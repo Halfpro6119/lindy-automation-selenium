@@ -195,6 +195,16 @@ class LindyAutomationPlaywright:
                 print("ERROR: Not logged in!")
                 return False
             
+            # Check for and close any modal dialogs first
+            print("\n→ Checking for modal dialogs...")
+            try:
+                # Try to close any open modals by pressing Escape
+                await self.page.keyboard.press('Escape')
+                await self.page.wait_for_timeout(1000)
+                print("✓ Closed any open modals")
+            except:
+                pass
+            
             # Look for Add button
             print("\n→ Looking for 'Add' button...")
             add_selectors = [
@@ -219,9 +229,37 @@ class LindyAutomationPlaywright:
                 await self.page.screenshot(path='screenshot_error_no_add_button.png')
                 return False
             
-            # Click Add button
+            # Try multiple click methods
             print("\n→ Clicking 'Add' button...")
-            await add_button.click()
+            
+            # Method 1: Try force click first
+            try:
+                await add_button.click(force=True, timeout=10000)
+                print("✓ Clicked Add button (force click)")
+            except Exception as e1:
+                print(f"  Force click failed: {str(e1)[:100]}")
+                
+                # Method 2: Try JavaScript click
+                try:
+                    await add_button.evaluate("element => element.click()")
+                    print("✓ Clicked Add button (JavaScript click)")
+                except Exception as e2:
+                    print(f"  JavaScript click failed: {str(e2)[:100]}")
+                    
+                    # Method 3: Try clicking by coordinates
+                    try:
+                        box = await add_button.bounding_box()
+                        if box:
+                            await self.page.mouse.click(box['x'] + box['width']/2, box['y'] + box['height']/2)
+                            print("✓ Clicked Add button (coordinate click)")
+                        else:
+                            raise Exception("Could not get button coordinates")
+                    except Exception as e3:
+                        print(f"  Coordinate click failed: {str(e3)[:100]}")
+                        print("ERROR: All click methods failed")
+                        await self.page.screenshot(path='screenshot_error_click_failed.png')
+                        return False
+            
             await self.page.wait_for_timeout(5000)
             print("✓ Template added to account!")
             
