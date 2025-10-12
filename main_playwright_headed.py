@@ -258,25 +258,8 @@ class LindyAutomationPlaywright:
             if '/tasks' in current_url:
                 editor_url = current_url.replace('/tasks', '/editor')
                 print(f"→ Navigating to editor: {editor_url}")
-                
-                # Use 'load' instead of 'networkidle' to avoid timeout
-                try:
-                    await self.page.goto(editor_url, wait_until='load', timeout=30000)
-                    print("✓ Editor page loaded (initial load)")
-                    
-                    # Wait for the page to be more stable
-                    await self.page.wait_for_timeout(5000)
-                    
-                    # Try to wait for network idle with a shorter timeout
-                    try:
-                        await self.page.wait_for_load_state('networkidle', timeout=10000)
-                        print("✓ Network idle achieved")
-                    except:
-                        print("→ Network still active, but continuing anyway")
-                    
-                except PlaywrightTimeout:
-                    print("→ Page load timeout, but page may still be usable")
-                
+                await self.page.goto(editor_url, wait_until='networkidle', timeout=60000)
+                await self.page.wait_for_timeout(3000)
                 print("✓ Navigated to editor view")
                 
                 await self.page.screenshot(path='screenshot_2b_editor_view.png', full_page=True)
@@ -294,15 +277,13 @@ class LindyAutomationPlaywright:
 
     async def configure_webhook(self):
         """Find webhook step and configure it"""
-        print("
-" + "="*70)
+        print("\n" + "="*70)
         print("STEP 2: CONFIGURING WEBHOOK")
         print("="*70)
         
         try:
             # Wait for page to load
-            print("
-→ Waiting for page to load...")
+            print("\n→ Waiting for page to load...")
             await self.page.wait_for_timeout(5000)
             
             # Scroll to top
@@ -315,8 +296,7 @@ class LindyAutomationPlaywright:
             print("✓ Screenshot saved: screenshot_3_before_webhook.png")
             
             # Look for webhook trigger
-            print("
-→ Looking for webhook element...")
+            print("\n→ Looking for webhook element...")
             webhook_selectors = [
                 "text='Webhook Received'",
                 "div:has-text('Webhook Received')",
@@ -340,8 +320,7 @@ class LindyAutomationPlaywright:
                 return False
             
             # Click webhook element
-            print("
-→ Clicking webhook element...")
+            print("\n→ Clicking webhook element...")
             await webhook_element.click()
             await self.page.wait_for_timeout(3000)
             print("✓ Webhook element opened")
@@ -350,8 +329,7 @@ class LindyAutomationPlaywright:
             print("✓ Screenshot saved: screenshot_4_webhook_opened.png")
             
             # NEW: Click "Select an option" button to open dropdown
-            print("
-→ Looking for 'Select an option' button...")
+            print("\n→ Looking for 'Select an option' button...")
             select_option_selectors = [
                 "button:has-text('Select an option')",
                 "button:has-text('select an option')",
@@ -381,8 +359,7 @@ class LindyAutomationPlaywright:
                 print("→ No 'Select an option' button found, checking if webhook already exists...")
             
             # Check if webhook already exists
-            print("
-→ Checking for existing webhook...")
+            print("\n→ Checking for existing webhook...")
             existing_url = await self.page.query_selector("input[value*='https://']")
             if existing_url:
                 self.lindy_url = await existing_url.input_value()
@@ -401,8 +378,7 @@ class LindyAutomationPlaywright:
                 print("✓ Clicked Create Webhook button")
                 
                 # Name the webhook
-                print("
-→ Naming the webhook...")
+                print("\n→ Naming the webhook...")
                 name_input = await self.page.query_selector("input[type='text']")
                 if name_input:
                     webhook_name = f"Lead Processing {int(time.time())}"
@@ -415,15 +391,13 @@ class LindyAutomationPlaywright:
                 print("✓ Screenshot saved: screenshot_5_webhook_created.png")
                 
                 # Get the webhook URL
-                print("
-→ Getting webhook URL...")
+                print("\n→ Getting webhook URL...")
                 url_input = await self.page.wait_for_selector("input[value*='https://']", timeout=10000)
                 self.lindy_url = await url_input.input_value()
                 print(f"✓ Got webhook URL: {self.lindy_url}")
             
             # Get authorization token
-            print("
-→ Getting authorization token...")
+            print("\n→ Getting authorization token...")
             secret_btn = await self.page.query_selector("button:has-text('secret'), button:has-text('Secret')")
             if secret_btn:
                 await secret_btn.click()
@@ -456,7 +430,8 @@ class LindyAutomationPlaywright:
             await self.page.screenshot(path='screenshot_error_webhook.png')
             return False
 
-        async def deploy_lindy(self):
+    
+    async def deploy_lindy(self):
         """Deploy the agent"""
         print("\n" + "="*70)
         print("STEP 3: DEPLOYING AGENT")
