@@ -321,7 +321,7 @@ class LindyAutomationPlaywright:
             await self.page.screenshot(path='screenshot_error_template.png')
             return False
 
-        async def configure_webhook(self):
+    async def configure_webhook(self):
         """Find webhook step and configure it"""
         print("\n" + "="*70)
         print("STEP 2: CONFIGURING WEBHOOK")
