@@ -172,17 +172,15 @@ class LindyAutomationPlaywright:
         
         return True
     
-async def add_template(self):
+    async def add_template(self):
         """Navigate to template and add it to account"""
-        print("
-" + "="*70)
+        print("\n" + "="*70)
         print("STEP 1: ADDING TEMPLATE TO ACCOUNT")
         print("="*70)
         
         try:
             # Navigate to template URL
-            print(f"
-→ Navigating to template: {config.LINDY_TEMPLATE_URL}")
+            print(f"\n→ Navigating to template: {config.LINDY_TEMPLATE_URL}")
             await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='domcontentloaded', timeout=60000)
             print("✓ Template page loaded")
             
@@ -210,8 +208,7 @@ async def add_template(self):
             print(f"→ Current URL before button search: {current_url}")
             
             # Look for Add button
-            print("
-→ Looking for 'Add' button...")
+            print("\n→ Looking for 'Add' button...")
             add_selectors = [
                 "button:has-text('Add')",
                 "button:has-text('Use template')",
@@ -243,8 +240,7 @@ async def add_template(self):
             print(f"→ URL before clicking Add button: {current_url}")
             
             # Try multiple click methods
-            print("
-→ Clicking 'Add' button...")
+            print("\n→ Clicking 'Add' button...")
             
             # Method 1: Try force click first
             try:
@@ -277,6 +273,9 @@ async def add_template(self):
             await self.page.wait_for_timeout(5000)
             print("✓ Template added to account!")
             
+            # Wait for navigation
+            await self.page.wait_for_timeout(5000)
+            
             # Take screenshot
             await self.page.screenshot(path='screenshot_2_after_add.png')
             print("✓ Screenshot saved: screenshot_2_after_add.png")
@@ -287,8 +286,7 @@ async def add_template(self):
             # Modify URL from /tasks to /editor
             if '/tasks' in current_url:
                 editor_url = current_url.replace('/tasks', '/editor')
-                print(f"
-→ Navigating to editor view: {editor_url}")
+                print(f"\n→ Navigating to editor view: {editor_url}")
                 await self.page.goto(editor_url, wait_until='networkidle', timeout=60000)
                 await self.page.wait_for_timeout(3000)
                 print("✓ Successfully navigated to editor view")
@@ -305,6 +303,8 @@ async def add_template(self):
             traceback.print_exc()
             await self.page.screenshot(path='screenshot_error_template.png')
             return False
+
+
     async def configure_webhook(self):
         """Find webhook step and configure it"""
         print("\n" + "="*70)
