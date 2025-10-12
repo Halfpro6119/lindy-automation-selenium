@@ -175,135 +175,105 @@ class LindyAutomationPlaywright:
     async def add_template(self):
         """Navigate to template and add it to account"""
         print("\n" + "="*70)
-        print("STEP 1: ADDING TEMPLATE TO ACCOUNT")
+        print("ADDING TEMPLATE TO ACCOUNT")
         print("="*70)
         
         try:
             # Navigate to template URL
-            print(f"\n→ Navigating to template: {config.LINDY_TEMPLATE_URL}")
-            await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='domcontentloaded', timeout=60000)
+            print(f"→ Navigating to template: {config.LINDY_TEMPLATE_URL}")
+            await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='networkidle', timeout=60000)
             print("✓ Template page loaded")
             
-            # Wait 5 seconds for page to fully load
-            print("→ Waiting 5 seconds for page to fully load...")
+            # Wait for page to fully load
             await self.page.wait_for_timeout(5000)
             
-            # Verify we are on the correct URL
+            # Take screenshot
+            await self.page.screenshot(path='screenshot_1_template_page.png', full_page=True)
+            print("→ Screenshot saved: screenshot_1_template_page.png")
+            
+            # Check if we need to login
             current_url = self.page.url
-            print(f"→ Verifying URL: {current_url}")
-            
-            # Check if we got redirected away from the template
-            if "templateId" not in current_url:
-                print(f"WARNING: URL was redirected! Current: {current_url}")
-                print(f"→ Navigating back to template URL: {config.LINDY_TEMPLATE_URL}")
-                await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='domcontentloaded', timeout=60000)
-                await self.page.wait_for_timeout(3000)
-                current_url = self.page.url
-                print(f"→ New URL: {current_url}")
-            
-            print("✓ URL verified")
-            
-            # Verify we're still on the template page before looking for button
-            current_url = self.page.url
-            print(f"→ Current URL before button search: {current_url}")
-            
-            # Look for Add button
-            print("\n→ Looking for 'Add' button...")
-            add_selectors = [
-                "button:has-text('Add')",
-                "button:has-text('Use template')",
-                "button:has-text('Use this template')",
-                "button:has-text('Add to workspace')"
-            ]
-            
-            add_button = None
-            for selector in add_selectors:
-                try:
-                    print(f"  Trying selector: {selector}")
-                    add_button = await self.page.wait_for_selector(selector, timeout=5000)
-                    if add_button:
-                        print(f"✓ Found Add button with selector: {selector}")
-                        break
-                except Exception as e:
-                    print(f"  Selector {selector} not found: {str(e)[:50]}")
-                    continue
-            
-            if not add_button:
-                print("ERROR: Could not find Add button")
-                current_url = self.page.url
-                print(f"ERROR: Current URL when button not found: {current_url}")
-                await self.page.screenshot(path='screenshot_error_no_add_button.png')
+            if 'login' in current_url or 'signin' in current_url or 'signup' in current_url:
+                print("✗ ERROR: Not logged in!")
                 return False
             
-            # Verify URL one more time before clicking
-            current_url = self.page.url
-            print(f"→ URL before clicking Add button: {current_url}")
+            print(f"→ Current URL: {current_url}")
             
-            # Try multiple click methods
-            print("\n→ Clicking 'Add' button...")
+            # Find and click the Add button
+            # Use JavaScript to find and click the button to avoid any Playwright click issues
+            print("→ Looking for Add button...")
             
-            # Method 1: Try force click first
-            try:
-                await add_button.click(force=True, timeout=10000)
-                print("✓ Clicked Add button (force click)")
-            except Exception as e1:
-                print(f"  Force click failed: {str(e1)[:100]}")
-                
-                # Method 2: Try JavaScript click
-                try:
-                    await add_button.evaluate("element => element.click()")
-                    print("✓ Clicked Add button (JavaScript click)")
-                except Exception as e2:
-                    print(f"  JavaScript click failed: {str(e2)[:100]}")
+            clicked = await self.page.evaluate("""
+                () => {
+                    // Find all buttons
+                    const buttons = Array.from(document.querySelectorAll('button'));
                     
-                    # Method 3: Try clicking by coordinates
-                    try:
-                        box = await add_button.bounding_box()
-                        if box:
-                            await self.page.mouse.click(box['x'] + box['width']/2, box['y'] + box['height']/2)
-                            print("✓ Clicked Add button (coordinate click)")
-                        else:
-                            raise Exception("Could not get button coordinates")
-                    except Exception as e3:
-                        print(f"  Coordinate click failed: {str(e3)[:100]}")
-                        print("ERROR: All click methods failed")
-                        await self.page.screenshot(path='screenshot_error_click_failed.png')
-                        return False
+                    // Find button with exact text "Add"
+                    const addButton = buttons.find(btn => {
+                        const text = btn.textContent.trim();
+                        const rect = btn.getBoundingClientRect();
+                        
+                        // Log all buttons with "Add" for debugging
+                        if (text.includes('Add')) {
+                            console.log('Found button:', text, 'at position:', rect.x, rect.y);
+                        }
+                        
+                        // Find the Add button that's visible and in the main content area
+                        // Not in the top navigation (y > 150) and visible
+                        return text === 'Add' && 
+                               rect.y > 150 && 
+                               rect.width > 0 && 
+                               rect.height > 0 &&
+                               window.getComputedStyle(btn).visibility === 'visible';
+                    });
+                    
+                    if (addButton) {
+                        console.log('Clicking Add button at:', addButton.getBoundingClientRect());
+                        addButton.click();
+                        return true;
+                    }
+                    
+                    return false;
+                }
+            """)
             
-            await self.page.wait_for_timeout(5000)
-            print("✓ Template added to account!")
+            if clicked:
+                print("✓ Clicked Add button")
+            else:
+                print("✗ Could not find Add button")
+                return False
             
             # Wait for navigation
             await self.page.wait_for_timeout(5000)
             
-            # Take screenshot
-            await self.page.screenshot(path='screenshot_2_after_add.png')
-            print("✓ Screenshot saved: screenshot_2_after_add.png")
-            
+            # Check new URL
             current_url = self.page.url
-            print(f"✓ Current URL after adding: {current_url}")
+            print(f"→ URL after clicking: {current_url}")
             
-            # Modify URL from /tasks to /editor
+            # Take screenshot
+            await self.page.screenshot(path='screenshot_2_after_add.png', full_page=True)
+            print("→ Screenshot saved: screenshot_2_after_add.png")
+            
+            # Navigate to editor view if we're on tasks view
             if '/tasks' in current_url:
                 editor_url = current_url.replace('/tasks', '/editor')
-                print(f"\n→ Navigating to editor view: {editor_url}")
+                print(f"→ Navigating to editor: {editor_url}")
                 await self.page.goto(editor_url, wait_until='networkidle', timeout=60000)
                 await self.page.wait_for_timeout(3000)
-                print("✓ Successfully navigated to editor view")
+                print("✓ Navigated to editor view")
                 
-                # Take screenshot of editor view
-                await self.page.screenshot(path='screenshot_2b_editor_view.png')
-                print("✓ Screenshot saved: screenshot_2b_editor_view.png")
+                await self.page.screenshot(path='screenshot_2b_editor_view.png', full_page=True)
+                print("→ Screenshot saved: screenshot_2b_editor_view.png")
             
+            print("✓ Template added successfully")
             return True
             
         except Exception as e:
-            print(f"ERROR adding template: {e}")
+            print(f"✗ Error adding template: {e}")
             import traceback
             traceback.print_exc()
-            await self.page.screenshot(path='screenshot_error_template.png')
+            await self.page.screenshot(path='screenshot_error_template.png', full_page=True)
             return False
-
 
     async def configure_webhook(self):
         """Find webhook step and configure it"""
