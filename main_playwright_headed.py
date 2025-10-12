@@ -95,11 +95,14 @@ class LindyAutomationPlaywright:
                 print("✗ Not logged in")
                 return False
             
-            # Check for New Agent button
-            new_agent_btn = await self.page.query_selector("button:has-text('New Agent')")
-            if new_agent_btn:
-                print("✓ Already logged in!")
-                return True
+            # Check for New Agent button with error handling
+            try:
+                new_agent_btn = await self.page.query_selector("button:has-text('New Agent')")
+                if new_agent_btn:
+                    print("✓ Already logged in!")
+                    return True
+            except Exception:
+                pass
             
             print("✗ Not logged in")
             return False
@@ -134,17 +137,33 @@ class LindyAutomationPlaywright:
             await asyncio.sleep(5)
             waited += 5
             
+            try:
+                # Wait for page to be stable after navigation
+                await self.page.wait_for_load_state('networkidle', timeout=10000)
+            except:
+                pass
+            
             current_url = self.page.url
+            
+            # Check URL for login success
             if 'workspace' in current_url or '/home' in current_url:
                 print("\n✓ Login detected!")
                 break
             
-            new_agent_btn = await self.page.query_selector("button:has-text('New Agent')")
-            if new_agent_btn:
-                print("\n✓ Login detected!")
-                break
+            # Try to find New Agent button with error handling
+            try:
+                new_agent_btn = await self.page.query_selector("button:has-text('New Agent')")
+                if new_agent_btn:
+                    print("\n✓ Login detected!")
+                    break
+            except Exception:
+                # Ignore errors during navigation
+                pass
             
             print(f"  Still waiting for login... ({waited}s elapsed)")
+        
+        # Wait a bit more to ensure page is stable
+        await self.page.wait_for_timeout(3000)
         
         # Save the session
         print("\n→ Saving login session for future use...")
