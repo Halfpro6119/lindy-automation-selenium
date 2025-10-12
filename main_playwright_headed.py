@@ -191,6 +191,22 @@ class LindyAutomationPlaywright:
             
             # Check if we need to login
             current_url = self.page.url
+            
+            # Wait 5 seconds for page to fully load
+            print("→ Waiting 5 seconds for page to fully load...")
+            await self.page.wait_for_timeout(5000)
+            
+            # Verify we are on the correct URL
+            current_url = self.page.url
+            print(f"→ Verifying URL: {current_url}")
+            if config.LINDY_TEMPLATE_URL not in current_url and "templateId" not in current_url:
+                print(f"WARNING: URL mismatch! Expected template URL but got: {current_url}")
+                print("→ Attempting to navigate again...")
+                await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='networkidle', timeout=60000)
+                await self.page.wait_for_timeout(5000)
+                current_url = self.page.url
+                print(f"→ New URL: {current_url}")
+            print("✓ URL verified")
             if 'login' in current_url or 'signin' in current_url or 'signup' in current_url:
                 print("ERROR: Not logged in!")
                 return False
