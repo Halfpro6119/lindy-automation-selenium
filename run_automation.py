@@ -330,10 +330,71 @@ class LindyAutomation:
                 print(f"✓ Found existing webhook URL: {self.lindy_url}")
             else:
                 # Create new webhook
-                create_btn = await self.page.query_selector("button:has-text('Create Webhook'), button:has-text('Create webhook')")
+                print("→ Creating new webhook...")
+                
+                # First, click "Select an option" button to reveal webhook options
+                print("→ Looking for 'Select an option' button...")
+                select_option_selectors = [
+                    "button:has-text('Select an option')",
+                    "button:has-text('select an option')",
+                    "button:has-text('Select')",
+                    "[role='button']:has-text('Select an option')",
+                    "div:has-text('Select an option')",
+                ]
+                
+                select_option_clicked = False
+                for selector in select_option_selectors:
+                    try:
+                        select_option_btn = await self.page.wait_for_selector(selector, timeout=3000)
+                        if select_option_btn:
+                            print(f"✓ Found 'Select an option' button: {selector}")
+                            await select_option_btn.click()
+                            await self.page.wait_for_timeout(2000)
+                            print("✓ Clicked 'Select an option' button")
+                            await self.page.screenshot(path='screenshot_4b_after_select_option.png')
+                            select_option_clicked = True
+                            break
+                    except:
+                        continue
+                
+                if not select_option_clicked:
+                    print("⚠ 'Select an option' button not found, continuing...")
+                
+                # Now look for Create Webhook button
+                print("→ Looking for 'Create Webhook' button...")
+                create_webhook_selectors = [
+                    "button:has-text('Create Webhook')",
+                    "button:has-text('Create webhook')",
+                    "button:has-text('Create new webhook')",
+                    "button:has-text('New webhook')",
+                    "button:has-text('webhook')",
+                ]
+                
+                create_btn = None
+                for selector in create_webhook_selectors:
+                    try:
+                        create_btn = await self.page.wait_for_selector(selector, timeout=3000)
+                        if create_btn:
+                            print(f"✓ Found 'Create Webhook' button: {selector}")
+                            break
+                    except:
+                        continue
+                
                 if not create_btn:
                     print("ERROR: Could not find Create Webhook button")
+                    print("→ Taking debug screenshot...")
                     await self.page.screenshot(path='screenshot_error_no_create.png')
+                    
+                    # Print all buttons on the page for debugging
+                    all_buttons = await self.page.query_selector_all("button")
+                    print(f"→ Found {len(all_buttons)} buttons on page:")
+                    for i, btn in enumerate(all_buttons[:15]):  # Show first 15 buttons
+                        try:
+                            text = await btn.inner_text()
+                            if text.strip():
+                                print(f"  Button {i+1}: '{text.strip()}'")
+                        except:
+                            pass
                     return False
                 
                 await create_btn.click()
