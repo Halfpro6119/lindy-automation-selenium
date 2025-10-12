@@ -185,13 +185,6 @@ class LindyAutomationPlaywright:
             await self.page.wait_for_timeout(5000)
             print("✓ Template page loaded")
             
-            # Take screenshot
-            await self.page.screenshot(path='screenshot_1_template_page.png')
-            print("✓ Screenshot saved: screenshot_1_template_page.png")
-            
-            # Check if we need to login
-            current_url = self.page.url
-            
             # Wait 5 seconds for page to fully load
             print("→ Waiting 5 seconds for page to fully load...")
             await self.page.wait_for_timeout(5000)
@@ -207,6 +200,12 @@ class LindyAutomationPlaywright:
                 current_url = self.page.url
                 print(f"→ New URL: {current_url}")
             print("✓ URL verified")
+            
+            # Take screenshot AFTER verification
+            await self.page.screenshot(path='screenshot_1_template_page.png')
+            print("✓ Screenshot saved: screenshot_1_template_page.png")
+            
+            # Check if we need to login (but don't navigate away)
             if 'login' in current_url or 'signin' in current_url or 'signup' in current_url:
                 print("ERROR: Not logged in!")
                 return False
@@ -221,6 +220,10 @@ class LindyAutomationPlaywright:
             except:
                 pass
             
+            # Verify we're still on the template page before looking for button
+            current_url = self.page.url
+            print(f"→ Current URL before button search: {current_url}")
+            
             # Look for Add button
             print("\n→ Looking for 'Add' button...")
             add_selectors = [
@@ -233,17 +236,25 @@ class LindyAutomationPlaywright:
             add_button = None
             for selector in add_selectors:
                 try:
+                    print(f"  Trying selector: {selector}")
                     add_button = await self.page.wait_for_selector(selector, timeout=5000)
                     if add_button:
                         print(f"✓ Found Add button with selector: {selector}")
                         break
-                except:
+                except Exception as e:
+                    print(f"  Selector {selector} not found: {str(e)[:50]}")
                     continue
             
             if not add_button:
                 print("ERROR: Could not find Add button")
+                current_url = self.page.url
+                print(f"ERROR: Current URL when button not found: {current_url}")
                 await self.page.screenshot(path='screenshot_error_no_add_button.png')
                 return False
+            
+            # Verify URL one more time before clicking
+            current_url = self.page.url
+            print(f"→ URL before clicking Add button: {current_url}")
             
             # Try multiple click methods
             print("\n→ Clicking 'Add' button...")
@@ -287,7 +298,7 @@ class LindyAutomationPlaywright:
             print("✓ Screenshot saved: screenshot_2_after_add.png")
             
             current_url = self.page.url
-            print(f"✓ Current URL: {current_url}")
+            print(f"✓ Current URL after adding: {current_url}")
             
             # Modify URL from /tasks to /editor
             if '/tasks' in current_url:
@@ -309,8 +320,8 @@ class LindyAutomationPlaywright:
             traceback.print_exc()
             await self.page.screenshot(path='screenshot_error_template.png')
             return False
-    
-    async def configure_webhook(self):
+
+        async def configure_webhook(self):
         """Find webhook step and configure it"""
         print("\n" + "="*70)
         print("STEP 2: CONFIGURING WEBHOOK")
