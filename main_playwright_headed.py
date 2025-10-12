@@ -172,17 +172,18 @@ class LindyAutomationPlaywright:
         
         return True
     
-    async def add_template(self):
+async def add_template(self):
         """Navigate to template and add it to account"""
-        print("\n" + "="*70)
+        print("
+" + "="*70)
         print("STEP 1: ADDING TEMPLATE TO ACCOUNT")
         print("="*70)
         
         try:
             # Navigate to template URL
-            print(f"\n→ Navigating to template: {config.LINDY_TEMPLATE_URL}")
-            await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='networkidle', timeout=60000)
-            await self.page.wait_for_timeout(5000)
+            print(f"
+→ Navigating to template: {config.LINDY_TEMPLATE_URL}")
+            await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='domcontentloaded', timeout=60000)
             print("✓ Template page loaded")
             
             # Wait 5 seconds for page to fully load
@@ -192,40 +193,25 @@ class LindyAutomationPlaywright:
             # Verify we are on the correct URL
             current_url = self.page.url
             print(f"→ Verifying URL: {current_url}")
-            if config.LINDY_TEMPLATE_URL not in current_url and "templateId" not in current_url:
-                print(f"WARNING: URL mismatch! Expected template URL but got: {current_url}")
-                print("→ Attempting to navigate again...")
-                await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='networkidle', timeout=60000)
-                await self.page.wait_for_timeout(5000)
+            
+            # Check if we got redirected away from the template
+            if "templateId" not in current_url:
+                print(f"WARNING: URL was redirected! Current: {current_url}")
+                print(f"→ Navigating back to template URL: {config.LINDY_TEMPLATE_URL}")
+                await self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='domcontentloaded', timeout=60000)
+                await self.page.wait_for_timeout(3000)
                 current_url = self.page.url
                 print(f"→ New URL: {current_url}")
+            
             print("✓ URL verified")
-            
-            # Take screenshot AFTER verification
-            await self.page.screenshot(path='screenshot_1_template_page.png')
-            print("✓ Screenshot saved: screenshot_1_template_page.png")
-            
-            # Check if we need to login (but don't navigate away)
-            if 'login' in current_url or 'signin' in current_url or 'signup' in current_url:
-                print("ERROR: Not logged in!")
-                return False
-            
-            # Check for and close any modal dialogs first
-            print("\n→ Checking for modal dialogs...")
-            try:
-                # Try to close any open modals by pressing Escape
-                await self.page.keyboard.press('Escape')
-                await self.page.wait_for_timeout(1000)
-                print("✓ Closed any open modals")
-            except:
-                pass
             
             # Verify we're still on the template page before looking for button
             current_url = self.page.url
             print(f"→ Current URL before button search: {current_url}")
             
             # Look for Add button
-            print("\n→ Looking for 'Add' button...")
+            print("
+→ Looking for 'Add' button...")
             add_selectors = [
                 "button:has-text('Add')",
                 "button:has-text('Use template')",
@@ -257,7 +243,8 @@ class LindyAutomationPlaywright:
             print(f"→ URL before clicking Add button: {current_url}")
             
             # Try multiple click methods
-            print("\n→ Clicking 'Add' button...")
+            print("
+→ Clicking 'Add' button...")
             
             # Method 1: Try force click first
             try:
@@ -290,9 +277,6 @@ class LindyAutomationPlaywright:
             await self.page.wait_for_timeout(5000)
             print("✓ Template added to account!")
             
-            # Wait for navigation
-            await self.page.wait_for_timeout(5000)
-            
             # Take screenshot
             await self.page.screenshot(path='screenshot_2_after_add.png')
             print("✓ Screenshot saved: screenshot_2_after_add.png")
@@ -303,7 +287,8 @@ class LindyAutomationPlaywright:
             # Modify URL from /tasks to /editor
             if '/tasks' in current_url:
                 editor_url = current_url.replace('/tasks', '/editor')
-                print(f"\n→ Navigating to editor view: {editor_url}")
+                print(f"
+→ Navigating to editor view: {editor_url}")
                 await self.page.goto(editor_url, wait_until='networkidle', timeout=60000)
                 await self.page.wait_for_timeout(3000)
                 print("✓ Successfully navigated to editor view")
@@ -320,7 +305,6 @@ class LindyAutomationPlaywright:
             traceback.print_exc()
             await self.page.screenshot(path='screenshot_error_template.png')
             return False
-
     async def configure_webhook(self):
         """Find webhook step and configure it"""
         print("\n" + "="*70)
