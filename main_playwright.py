@@ -512,7 +512,7 @@ class LindyAutomationPlaywright:
                         print(f"✓ Found first generate secret button: {selector}")
                         print(f"→ Button text: '{button_text}'")
                         await first_generate_btn.click()
-                        await self.page.wait_for_timeout(2000)
+                        await self.page.wait_for_timeout(3000)
                         print("✓ Clicked first generate secret button")
                         
                         # Take screenshot after clicking first button
@@ -531,16 +531,17 @@ class LindyAutomationPlaywright:
             # STEP 2: Click the second "Generate Secret" button in the dialog/modal
             print("\n→ Looking for second Generate Secret button in dialog...")
             
-            # Wait for dialog/modal to appear
-            await self.page.wait_for_timeout(2000)
+            # Wait longer for dialog/modal to fully appear and animations to complete
+            await self.page.wait_for_timeout(3000)
             
             second_generate_selectors = [
-                "button:has-text('Generate Secret')",
-                "button:has-text('Generate secret')",
-                "button:has-text('Generate')",
-                "button[type='submit']:has-text('Generate')",
+                "div[role='dialog'] button:has-text('Generate Secret')",
+                "div[role='dialog'] button:has-text('Generate secret')",
                 "div[role='dialog'] button:has-text('Generate')",
-                "div[role='dialog'] button:has-text('Generate Secret')"
+                "[role='dialog'] button:has-text('Generate Secret')",
+                "[role='dialog'] button:has-text('Generate secret')",
+                "button:has-text('Generate Secret')",
+                "button:has-text('Generate secret')"
             ]
             
             second_generate_btn = None
@@ -558,9 +559,26 @@ class LindyAutomationPlaywright:
                         if 'generate' in button_text.lower():
                             second_generate_btn = btn
                             print(f"✓ Found second generate secret button: {selector}")
-                            await second_generate_btn.click()
+                            
+                            # Try multiple click methods
+                            try:
+                                # Method 1: Force click (ignores overlays)
+                                await second_generate_btn.click(force=True)
+                                print("✓ Clicked second generate secret button (force click)")
+                            except Exception as e1:
+                                print(f"→ Force click failed: {e1}")
+                                try:
+                                    # Method 2: JavaScript click
+                                    await self.page.evaluate("(element) => element.click()", second_generate_btn)
+                                    print("✓ Clicked second generate secret button (JavaScript click)")
+                                except Exception as e2:
+                                    print(f"→ JavaScript click failed: {e2}")
+                                    # Method 3: Regular click with longer timeout
+                                    await second_generate_btn.click(timeout=10000)
+                                    print("✓ Clicked second generate secret button (regular click)")
+                            
                             await self.page.wait_for_timeout(3000)
-                            print("✓ Clicked second generate secret button - Secret key should now be created!")
+                            print("✓ Secret key should now be created!")
                             
                             # Take screenshot after clicking second button
                             await self.page.screenshot(path='screenshot_5_7_after_second_generate.png')
@@ -684,6 +702,7 @@ class LindyAutomationPlaywright:
                 print("WARNING: No secret button found")
                 self.auth_token = ""
             
+            return True
             return True
         
         except Exception as e:
