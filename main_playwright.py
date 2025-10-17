@@ -486,42 +486,74 @@ class LindyAutomationPlaywright:
             
             
             
+            # Take screenshot before looking for generate secret button
+            await self.page.screenshot(path='screenshot_5_5_before_generate.png')
+            print("✓ Screenshot saved: screenshot_5_5_before_generate.png")
+            
             # First, look for and click the "Generate Secret" button to create the secret
             print("\n→ Looking for Generate Secret button...")
+            
+            # Wait a bit to ensure page is fully loaded
+            await self.page.wait_for_timeout(2000)
+            
             generate_secret_selectors = [
-                "button:has-text('Generate Secret')",
-                "button:has-text('Generate secret')",
-                "button:has-text('generate secret')",
-                "button[aria-label*='Generate Secret' i]",
-                "button[aria-label*='Generate secret' i]",
+                "button:has-text('Generate Secret'):not(:has-text('Show'))",
+                "button:text-is('Generate Secret')",
                 "a:has-text('Generate Secret')",
+                "button:has-text('Generate secret'):not(:has-text('Show'))",
+                "button:text-is('Generate secret')",
                 "a:has-text('Generate secret')"
             ]
             
             generate_btn = None
             for selector in generate_secret_selectors:
                 try:
-                    generate_btn = await self.page.wait_for_selector(selector, timeout=3000)
-                    if generate_btn:
-                        print(f"✓ Found generate secret button: {selector}")
-                        await generate_btn.click()
-                        await self.page.wait_for_timeout(2000)
-                        print("✓ Clicked generate secret button")
-                        break
-                except:
+                    # Get all matching elements
+                    elements = await self.page.query_selector_all(selector)
+                    print(f"→ Found {len(elements)} elements matching: {selector}")
+                    
+                    if len(elements) > 0:
+                        generate_btn = elements[0]
+                        # Get button text to verify
+                        button_text = await generate_btn.text_content()
+                        print(f"→ Button text: '{button_text}'")
+                        
+                        # Only click if it's actually "Generate Secret" (not "Show secret")
+                        if 'generate' in button_text.lower() and 'secret' in button_text.lower():
+                            print(f"✓ Found generate secret button: {selector}")
+                            await generate_btn.click()
+                            await self.page.wait_for_timeout(3000)
+                            print("✓ Clicked generate secret button")
+                            
+                            # Take screenshot after clicking
+                            await self.page.screenshot(path='screenshot_5_6_after_generate.png')
+                            print("✓ Screenshot saved: screenshot_5_6_after_generate.png")
+                            break
+                        else:
+                            print(f"→ Skipping button with text: '{button_text}'")
+                            generate_btn = None
+                except Exception as e:
+                    print(f"→ Error with selector {selector}: {e}")
                     continue
             
             if not generate_btn:
                 print("INFO: No generate secret button found, secret may already exist")
+                await self.page.screenshot(path='screenshot_5_7_no_generate_button.png')
+                print("✓ Screenshot saved: screenshot_5_7_no_generate_button.png")
             
             # Now get authorization token
             print("\n→ Getting authorization token...")
+            
+            # Wait for any dialogs or modals to appear
+            await self.page.wait_for_timeout(2000)
+            
             secret_selectors = [
-                "button:has-text('secret')",
-                "button:has-text('Secret')",
                 "button:has-text('Show secret')",
+                "button:has-text('show secret')",
                 "button:has-text('View secret')",
-                "button[aria-label*='secret' i]"
+                "button:has-text('view secret')",
+                "a:has-text('Show secret')",
+                "a:has-text('show secret')"
             ]
             
             secret_btn = None
@@ -555,6 +587,7 @@ class LindyAutomationPlaywright:
                     try:
                         # Find all copy buttons and try the second one (first is for URL, second for token)
                         copy_buttons = await self.page.query_selector_all(selector)
+                        print(f"→ Found {len(copy_buttons)} copy buttons")
                         if len(copy_buttons) > 1:
                             await copy_buttons[1].click()
                             await self.page.wait_for_timeout(1000)
@@ -573,7 +606,8 @@ class LindyAutomationPlaywright:
                                 break
                             except Exception as e:
                                 print(f"ERROR getting token from clipboard: {e}")
-                    except:
+                    except Exception as e:
+                        print(f"→ Error with copy button: {e}")
                         continue
                 
                 # If copy button didn't work, try to get token from input field
