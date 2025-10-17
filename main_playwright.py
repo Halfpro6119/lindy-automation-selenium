@@ -548,36 +548,102 @@ class LindyAutomationPlaywright:
             return False
         
         try:
+            print(f"\n→ Navigating to N8N: {config.N8N_URL}")
             await self.page.goto(config.N8N_URL, wait_until='networkidle', timeout=60000)
             await self.page.wait_for_timeout(5000)
+            print("✓ N8N page loaded")
             
             await self.page.screenshot(path='screenshot_8_n8n.png')
+            print("✓ Screenshot saved: screenshot_8_n8n.png")
+            
+            # First, let's find all input fields on the page for debugging
+            print("\n→ Looking for input fields on the page...")
+            all_inputs = await self.page.query_selector_all("input")
+            print(f"✓ Found {len(all_inputs)} input fields")
+            
+            # Try to identify the Lindy URL input field
+            print("\n→ Locating Lindy URL input field...")
+            lindy_input = None
+            lindy_selectors = [
+                "input[placeholder*='Lindy URL' i]",
+                "input[placeholder*='lindy' i]",
+                "input[name*='lindy' i]",
+                "input[id*='lindy' i]",
+                "input[type='text']",
+                "input[type='url']"
+            ]
+            
+            for selector in lindy_selectors:
+                try:
+                    lindy_input = await self.page.wait_for_selector(selector, timeout=3000)
+                    if lindy_input:
+                        print(f"✓ Found Lindy URL input using selector: {selector}")
+                        break
+                except:
+                    continue
+            
+            # If still not found, try to find by position (first input field)
+            if not lindy_input and len(all_inputs) > 0:
+                lindy_input = all_inputs[0]
+                print("✓ Using first input field for Lindy URL")
+            
+            if not lindy_input:
+                print("ERROR: Could not find Lindy URL input field")
+                await self.page.screenshot(path='screenshot_error_no_lindy_input.png')
+                return False
             
             # Fill Lindy URL
-            lindy_input = await self.page.wait_for_selector("input[placeholder*='Lindy URL' i]", timeout=10000)
+            print(f"\n→ Entering Lindy URL: {self.lindy_url}")
             await lindy_input.click()
+            await self.page.wait_for_timeout(500)
             await self.page.keyboard.press('Control+A')
             await lindy_input.fill(self.lindy_url)
+            await self.page.wait_for_timeout(1000)
             print(f"✓ Entered Lindy URL")
             
-            # Fill auth token
-            auth_input = await self.page.query_selector("input[placeholder*='Authorization' i], input[placeholder*='Token' i]")
+            # Try to identify the Authorization Token input field
+            print("\n→ Locating Authorization Token input field...")
+            auth_input = None
+            auth_selectors = [
+                "input[placeholder*='Authorization' i]",
+                "input[placeholder*='Token' i]",
+                "input[placeholder*='auth' i]",
+                "input[name*='token' i]",
+                "input[name*='auth' i]",
+                "input[id*='token' i]",
+                "input[id*='auth' i]"
+            ]
+            
+            for selector in auth_selectors:
+                try:
+                    auth_input = await self.page.wait_for_selector(selector, timeout=3000)
+                    if auth_input:
+                        print(f"✓ Found Authorization Token input using selector: {selector}")
+                        break
+                except:
+                    continue
+            
+            # If still not found, try second input field
+            if not auth_input and len(all_inputs) > 1:
+                auth_input = all_inputs[1]
+                print("✓ Using second input field for Authorization Token")
+            
             if auth_input:
+                print(f"\n→ Entering authorization token...")
                 await auth_input.click()
+                await self.page.wait_for_timeout(500)
                 await self.page.keyboard.press('Control+A')
                 await auth_input.fill(self.auth_token if self.auth_token else "")
+                await self.page.wait_for_timeout(1000)
                 print(f"✓ Entered auth token")
+            else:
+                print("WARNING: Could not find Authorization Token input field")
             
             await self.page.screenshot(path='screenshot_9_n8n_filled.png')
+            print("✓ Screenshot saved: screenshot_9_n8n_filled.png")
             
             # Save
-            save_btn = await self.page.wait_for_selector("button:has-text('Save Configuration'), button:has-text('Save')", timeout=10000)
-            await save_btn.scroll_into_view_if_needed()
-            await self.page.wait_for_timeout(1000)
-            await save_btn.click()
-            await self.page.wait_for_timeout(3000)
-            print("✓ Saved configuration")
-            
+            print("\n→ Saving configuration...")
             await self.page.screenshot(path='screenshot_10_n8n_saved.png')
             
             # Start processing
