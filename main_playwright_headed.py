@@ -408,11 +408,81 @@ class LindyAutomationPlaywright:
                 await self.page.screenshot(path='screenshot_5_webhook_created.png')
                 print("✓ Screenshot saved: screenshot_5_webhook_created.png")
                 
-                # Get the webhook URL
-                print("\n→ Getting webhook URL...")
-                url_input = await self.page.wait_for_selector("input[value*='https://']", timeout=10000)
-                self.lindy_url = await url_input.input_value()
-                print(f"✓ Got webhook URL: {self.lindy_url}")
+                # Click on the newly created webhook to open it
+                print("\n→ Clicking on the newly created webhook...")
+                webhook_selectors = [
+                    "button:has-text('webhook')",
+                    "div:has-text('webhook')",
+                    "[role='button']:has-text('webhook')",
+                    "a:has-text('webhook')"
+                ]
+                
+                webhook_clicked = False
+                for selector in webhook_selectors:
+                    try:
+                        webhook_element = await self.page.wait_for_selector(selector, timeout=3000)
+                        if webhook_element:
+                            await webhook_element.click()
+                            await self.page.wait_for_timeout(2000)
+                            print(f"✓ Clicked on webhook: {selector}")
+                            webhook_clicked = True
+                            break
+                    except:
+                        continue
+                
+                if not webhook_clicked:
+                    print("ERROR: Could not find the webhook to click")
+                    await self.page.screenshot(path='screenshot_error_no_webhook.png')
+                    return False
+                
+                # Click the "Copy to clipboard" button to get the webhook URL
+                print("\n→ Clicking 'Copy to clipboard' button...")
+                copy_selectors = [
+                    "button:has-text('Copy to clipboard')",
+                    "button:has-text('Copy')",
+                    "button[title*='Copy']",
+                    "[aria-label*='Copy']"
+                ]
+                
+                copy_clicked = False
+                for selector in copy_selectors:
+                    try:
+                        copy_btn = await self.page.wait_for_selector(selector, timeout=3000)
+                        if copy_btn:
+                            await copy_btn.click()
+                            await self.page.wait_for_timeout(1000)
+                            print(f"✓ Clicked copy button: {selector}")
+                            copy_clicked = True
+                            break
+                    except:
+                        continue
+                
+                if not copy_clicked:
+                    print("ERROR: Could not find 'Copy to clipboard' button")
+                    await self.page.screenshot(path='screenshot_error_no_copy.png')
+                    return False
+                
+                # Get the URL from clipboard using CDP
+                print("\n→ Getting webhook URL from clipboard...")
+                try:
+                    cdp = await self.context.new_cdp_session(self.page)
+                    clipboard_data = await cdp.send('Runtime.evaluate', {
+                        'expression': 'navigator.clipboard.readText()',
+                        'awaitPromise': True
+                    })
+                    self.lindy_url = clipboard_data['result']['value']
+                    print(f"✓ Got webhook URL from clipboard: {self.lindy_url}")
+                except Exception as e:
+                    print(f"ERROR getting URL from clipboard: {e}")
+                    # Fallback: try to find the URL in the page
+                    try:
+                        url_element = await self.page.wait_for_selector("input[value*='https://'], code:has-text('https://'), pre:has-text('https://')", timeout=5000)
+                        if url_element:
+                            self.lindy_url = await url_element.text_content() or await url_element.input_value()
+                            print(f"✓ Got webhook URL from page: {self.lindy_url}")
+                    except:
+                        print("ERROR: Could not retrieve webhook URL")
+                        return False
             
             # Get authorization token
             print("\n→ Getting authorization token...")
