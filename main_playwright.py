@@ -483,26 +483,107 @@ class LindyAutomationPlaywright:
                     except:
                         print("ERROR: Could not retrieve webhook URL")
                         return False
+            
             # Get authorization token
-            secret_btn = await self.page.query_selector("button:has-text('secret'), button:has-text('Secret')")
+            print("\n→ Getting authorization token...")
+            secret_selectors = [
+                "button:has-text('secret')",
+                "button:has-text('Secret')",
+                "button:has-text('Show secret')",
+                "button:has-text('Generate secret')",
+                "button[aria-label*='secret' i]"
+            ]
+            
+            secret_btn = None
+            for selector in secret_selectors:
+                try:
+                    secret_btn = await self.page.wait_for_selector(selector, timeout=3000)
+                    if secret_btn:
+                        print(f"✓ Found secret button: {selector}")
+                        break
+                except:
+                    continue
+            
             if secret_btn:
                 await secret_btn.click()
                 await self.page.wait_for_timeout(2000)
                 print("✓ Clicked secret button")
                 
                 await self.page.screenshot(path='screenshot_6_secret.png')
+                print("✓ Screenshot saved: screenshot_6_secret.png")
                 
-                # Get token
-                token_input = await self.page.query_selector("input[readonly]")
-                if token_input:
-                    self.auth_token = await token_input.input_value()
-                    print(f"✓ Got auth token: {self.auth_token[:20]}...")
+                # Try to find and click the copy button for the token
+                print("\n→ Looking for token copy button...")
+                token_copy_selectors = [
+                    "button:has-text('Copy')",
+                    "button[title*='Copy' i]",
+                    "button[aria-label*='Copy' i]"
+                ]
+                
+                token_copied = False
+                for selector in token_copy_selectors:
+                    try:
+                        # Find all copy buttons and try the second one (first is for URL, second for token)
+                        copy_buttons = await self.page.query_selector_all(selector)
+                        if len(copy_buttons) > 1:
+                            await copy_buttons[1].click()
+                            await self.page.wait_for_timeout(1000)
+                            print(f"✓ Clicked token copy button")
+                            
+                            # Get token from clipboard
+                            try:
+                                cdp = await self.context.new_cdp_session(self.page)
+                                clipboard_data = await cdp.send('Runtime.evaluate', {
+                                    'expression': 'navigator.clipboard.readText()',
+                                    'awaitPromise': True
+                                })
+                                self.auth_token = clipboard_data['result']['value']
+                                print(f"✓ Got auth token from clipboard: {self.auth_token[:20]}...")
+                                token_copied = True
+                                break
+                            except Exception as e:
+                                print(f"ERROR getting token from clipboard: {e}")
+                    except:
+                        continue
+                
+                # If copy button didn't work, try to get token from input field
+                if not token_copied:
+                    print("\n→ Trying to get token from input field...")
+                    token_selectors = [
+                        "input[readonly]",
+                        "input[type='text'][value]",
+                        "input[type='password']",
+                        "code",
+                        "pre"
+                    ]
+                    
+                    for selector in token_selectors:
+                        try:
+                            token_element = await self.page.wait_for_selector(selector, timeout=3000)
+                            if token_element:
+                                token_value = await token_element.input_value() if selector.startswith('input') else await token_element.text_content()
+                                if token_value and len(token_value) > 10:  # Make sure it's not empty
+                                    self.auth_token = token_value.strip()
+                                    print(f"✓ Got auth token from {selector}: {self.auth_token[:20]}...")
+                                    token_copied = True
+                                    break
+                        except:
+                            continue
+                
+                if not token_copied:
+                    print("WARNING: Could not retrieve auth token")
+                    self.auth_token = ""
                 
                 # Close dialog
+                print("\n→ Closing secret dialog...")
                 await self.page.keyboard.press('Escape')
                 await self.page.wait_for_timeout(1000)
+                print("✓ Closed dialog")
             else:
                 print("WARNING: No secret button found")
+                self.auth_token = ""
+            
+            return True
                 self.auth_token = ""
             
             return True
