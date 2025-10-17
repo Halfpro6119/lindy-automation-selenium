@@ -585,6 +585,12 @@ class LindyAutomationPlaywright:
                 self.auth_token = ""
             
             return True
+
+        except Exception as e:
+            print(f"ERROR configuring webhook: {e}")
+            import traceback
+            traceback.print_exc()
+            await self.page.screenshot(path='screenshot_error_webhook.png')
             return False
 
     
