@@ -485,31 +485,34 @@ class LindyAutomationPlaywright:
                         return False
             
             
-            # First, look for and click the "Generate" button to create the secret
-            print("\n→ Looking for Generate button...")
-            generate_selectors = [
-                "button:has-text('Generate')",
-                "button:has-text('generate')",
+            
+            # First, look for and click the "Generate Secret" button to create the secret
+            print("\n→ Looking for Generate Secret button...")
+            generate_secret_selectors = [
+                "button:has-text('Generate Secret')",
                 "button:has-text('Generate secret')",
-                "button:has-text('Generate token')",
-                "button[aria-label*='Generate' i]"
+                "button:has-text('generate secret')",
+                "button[aria-label*='Generate Secret' i]",
+                "button[aria-label*='Generate secret' i]",
+                "a:has-text('Generate Secret')",
+                "a:has-text('Generate secret')"
             ]
             
             generate_btn = None
-            for selector in generate_selectors:
+            for selector in generate_secret_selectors:
                 try:
                     generate_btn = await self.page.wait_for_selector(selector, timeout=3000)
                     if generate_btn:
-                        print(f"✓ Found generate button: {selector}")
+                        print(f"✓ Found generate secret button: {selector}")
                         await generate_btn.click()
                         await self.page.wait_for_timeout(2000)
-                        print("✓ Clicked generate button")
+                        print("✓ Clicked generate secret button")
                         break
                 except:
                     continue
             
             if not generate_btn:
-                print("INFO: No generate button found, secret may already exist")
+                print("INFO: No generate secret button found, secret may already exist")
             
             # Now get authorization token
             print("\n→ Getting authorization token...")
@@ -611,9 +614,6 @@ class LindyAutomationPlaywright:
                 self.auth_token = ""
             
             return True
-            return True
-            
-        except Exception as e:
             print(f"Error configuring webhook: {e}")
             import traceback
             traceback.print_exc()
