@@ -390,18 +390,20 @@ class LindyAutomationPlaywright:
                     return False
                 
                 await create_btn.click()
-                await self.page.wait_for_timeout(3000)
-                print("✓ Clicked Create button")
+                await self.page.wait_for_timeout(2000)
+                print("✓ Clicked Create button (opened dropdown)")
                 
-                # Name the webhook
+                # After clicking "Create New", type "webhook" and press Enter
                 print("\n→ Naming the webhook...")
-                name_input = await self.page.query_selector("input[type='text']")
-                if name_input:
-                    webhook_name = f"Lead Processing {int(time.time())}"
-                    await name_input.fill(webhook_name)
-                    await self.page.keyboard.press('Enter')
-                    await self.page.wait_for_timeout(3000)
-                    print(f"✓ Named webhook: {webhook_name}")
+                print("→ Typing 'webhook' in the dropdown...")
+                await self.page.keyboard.type("webhook")
+                await self.page.wait_for_timeout(1000)
+                print("✓ Typed 'webhook'")
+                
+                print("→ Pressing Enter to create webhook...")
+                await self.page.keyboard.press('Enter')
+                await self.page.wait_for_timeout(3000)
+                print("✓ Pressed Enter - webhook should be created")
                 
                 await self.page.screenshot(path='screenshot_5_webhook_created.png')
                 print("✓ Screenshot saved: screenshot_5_webhook_created.png")
