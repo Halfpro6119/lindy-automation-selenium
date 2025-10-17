@@ -614,6 +614,8 @@ class LindyAutomationPlaywright:
                 self.auth_token = ""
             
             return True
+        
+        except Exception as e:
             print(f"Error configuring webhook: {e}")
             import traceback
             traceback.print_exc()
