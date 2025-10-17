@@ -485,13 +485,40 @@ class LindyAutomationPlaywright:
                     except:
                         print("ERROR: Could not retrieve webhook URL")
             
-            # Get authorization token
+            
+            # First, look for and click the "Generate" button to create the secret
+            print("\n→ Looking for Generate button...")
+            generate_selectors = [
+                "button:has-text('Generate')",
+                "button:has-text('generate')",
+                "button:has-text('Generate secret')",
+                "button:has-text('Generate token')",
+                "button[aria-label*='Generate' i]"
+            ]
+            
+            generate_btn = None
+            for selector in generate_selectors:
+                try:
+                    generate_btn = await self.page.wait_for_selector(selector, timeout=3000)
+                    if generate_btn:
+                        print(f"✓ Found generate button: {selector}")
+                        await generate_btn.click()
+                        await self.page.wait_for_timeout(2000)
+                        print("✓ Clicked generate button")
+                        break
+                except:
+                    continue
+            
+            if not generate_btn:
+                print("INFO: No generate button found, secret may already exist")
+            
+            # Now get authorization token
             print("\n→ Getting authorization token...")
             secret_selectors = [
                 "button:has-text('secret')",
                 "button:has-text('Secret')",
                 "button:has-text('Show secret')",
-                "button:has-text('Generate secret')",
+                "button:has-text('View secret')",
                 "button[aria-label*='secret' i]"
             ]
             
@@ -584,6 +611,7 @@ class LindyAutomationPlaywright:
                 print("WARNING: No secret button found")
                 self.auth_token = ""
             
+            return True
             return True
 
         except Exception as e:
