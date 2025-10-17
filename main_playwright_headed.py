@@ -491,61 +491,98 @@ class LindyAutomationPlaywright:
             await self.page.screenshot(path='screenshot_5_5_before_generate.png')
             print("✓ Screenshot saved: screenshot_5_5_before_generate.png")
             
-            # First, look for and click the "Generate Secret" button to create the secret
-            print("\n→ Looking for Generate Secret button...")
+            # STEP 1: Click the first "Generate Secret" button to open the dialog
+            print("\n→ Looking for first Generate Secret button...")
             
             # Wait a bit to ensure page is fully loaded
             await self.page.wait_for_timeout(2000)
             
-            generate_secret_selectors = [
-                "button:has-text('Generate Secret'):not(:has-text('Show'))",
-                "button:text-is('Generate Secret')",
+            first_generate_selectors = [
+                "button:has-text('Generate Secret')",
+                "button:has-text('Generate secret')",
                 "a:has-text('Generate Secret')",
-                "button:has-text('Generate secret'):not(:has-text('Show'))",
-                "button:text-is('Generate secret')",
                 "a:has-text('Generate secret')"
             ]
             
-            generate_btn = None
-            for selector in generate_secret_selectors:
+            first_generate_btn = None
+            for selector in first_generate_selectors:
                 try:
-                    # Get all matching elements
-                    elements = await self.page.query_selector_all(selector)
-                    print(f"→ Found {len(elements)} elements matching: {selector}")
-                    
-                    if len(elements) > 0:
-                        generate_btn = elements[0]
-                        # Get button text to verify
-                        button_text = await generate_btn.text_content()
+                    first_generate_btn = await self.page.wait_for_selector(selector, timeout=3000)
+                    if first_generate_btn:
+                        button_text = await first_generate_btn.text_content()
+                        print(f"✓ Found first generate secret button: {selector}")
                         print(f"→ Button text: '{button_text}'")
+                        await first_generate_btn.click()
+                        await self.page.wait_for_timeout(2000)
+                        print("✓ Clicked first generate secret button")
                         
-                        # Only click if it's actually "Generate Secret" (not "Show secret")
-                        if 'generate' in button_text.lower() and 'secret' in button_text.lower():
-                            print(f"✓ Found generate secret button: {selector}")
-                            await generate_btn.click()
-                            await self.page.wait_for_timeout(3000)
-                            print("✓ Clicked generate secret button")
-                            
-                            # Take screenshot after clicking
-                            await self.page.screenshot(path='screenshot_5_6_after_generate.png')
-                            print("✓ Screenshot saved: screenshot_5_6_after_generate.png")
-                            break
-                        else:
-                            print(f"→ Skipping button with text: '{button_text}'")
-                            generate_btn = None
+                        # Take screenshot after clicking first button
+                        await self.page.screenshot(path='screenshot_5_6_after_first_generate.png')
+                        print("✓ Screenshot saved: screenshot_5_6_after_first_generate.png")
+                        break
                 except Exception as e:
                     print(f"→ Error with selector {selector}: {e}")
                     continue
             
-            if not generate_btn:
-                print("INFO: No generate secret button found, secret may already exist")
-                await self.page.screenshot(path='screenshot_5_7_no_generate_button.png')
-                print("✓ Screenshot saved: screenshot_5_7_no_generate_button.png")
+            if not first_generate_btn:
+                print("ERROR: Could not find first Generate Secret button")
+                await self.page.screenshot(path='screenshot_error_no_first_generate.png')
+                return False
+            
+            # STEP 2: Click the second "Generate Secret" button in the dialog/modal
+            print("\n→ Looking for second Generate Secret button in dialog...")
+            
+            # Wait for dialog/modal to appear
+            await self.page.wait_for_timeout(2000)
+            
+            second_generate_selectors = [
+                "button:has-text('Generate Secret')",
+                "button:has-text('Generate secret')",
+                "button:has-text('Generate')",
+                "button[type='submit']:has-text('Generate')",
+                "div[role='dialog'] button:has-text('Generate')",
+                "div[role='dialog'] button:has-text('Generate Secret')"
+            ]
+            
+            second_generate_btn = None
+            for selector in second_generate_selectors:
+                try:
+                    # Look for all matching buttons
+                    buttons = await self.page.query_selector_all(selector)
+                    print(f"→ Found {len(buttons)} buttons matching: {selector}")
+                    
+                    for btn in buttons:
+                        button_text = await btn.text_content()
+                        print(f"→ Button text: '{button_text}'")
+                        
+                        # Click the button if it contains "generate"
+                        if 'generate' in button_text.lower():
+                            second_generate_btn = btn
+                            print(f"✓ Found second generate secret button: {selector}")
+                            await second_generate_btn.click()
+                            await self.page.wait_for_timeout(3000)
+                            print("✓ Clicked second generate secret button - Secret key should now be created!")
+                            
+                            # Take screenshot after clicking second button
+                            await self.page.screenshot(path='screenshot_5_7_after_second_generate.png')
+                            print("✓ Screenshot saved: screenshot_5_7_after_second_generate.png")
+                            break
+                    
+                    if second_generate_btn:
+                        break
+                except Exception as e:
+                    print(f"→ Error with selector {selector}: {e}")
+                    continue
+            
+            if not second_generate_btn:
+                print("WARNING: Could not find second Generate Secret button")
+                await self.page.screenshot(path='screenshot_error_no_second_generate.png')
+                print("✓ Screenshot saved: screenshot_error_no_second_generate.png")
             
             # Now get authorization token
             print("\n→ Getting authorization token...")
             
-            # Wait for any dialogs or modals to appear
+            # Wait for secret to be generated
             await self.page.wait_for_timeout(2000)
             
             secret_selectors = [
@@ -645,6 +682,10 @@ class LindyAutomationPlaywright:
                 await self.page.wait_for_timeout(1000)
                 print("✓ Closed dialog")
             else:
+                print("WARNING: No secret button found")
+                self.auth_token = ""
+            
+            return True
                 print("WARNING: No secret button found")
                 self.auth_token = ""
             
