@@ -686,10 +686,6 @@ class LindyAutomationPlaywright:
                 self.auth_token = ""
             
             return True
-                print("WARNING: No secret button found")
-                self.auth_token = ""
-            
-            return True
         
         except Exception as e:
             print(f"ERROR configuring webhook: {e}")
