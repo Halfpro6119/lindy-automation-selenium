@@ -934,54 +934,77 @@ class LindyAutomationPlaywright:
         print("="*70)
         
         try:
-            await self.page.goto("https://chat.lindy.ai", wait_until='networkidle', timeout=60000)
+            # Navigate directly to settings page
+            print("\n→ Navigating to settings page...")
+            await self.page.goto("https://chat.lindy.ai/rileys-workspace-5/settings/general", wait_until='networkidle', timeout=60000)
             await self.page.wait_for_timeout(3000)
             
-            await self.page.screenshot(path='screenshot_12_before_delete.png')
+            await self.page.screenshot(path='screenshot_12_settings_page.png')
+            print("✓ Navigated to settings page")
             
-            # Find menu
-            menu_btn = await self.page.query_selector("button[aria-label*='menu' i], [class*='menu'], [class*='avatar']")
-            if not menu_btn:
-                print("WARNING: No menu button found")
-                return False
-            
-            await menu_btn.click()
-            await self.page.wait_for_timeout(2000)
-            print("✓ Opened menu")
-            
-            await self.page.screenshot(path='screenshot_13_menu.png')
-            
-            # Find Settings
-            settings_btn = await self.page.query_selector("text='Settings', button:has-text('Settings')")
-            if settings_btn:
-                await settings_btn.click()
-                await self.page.wait_for_timeout(3000)
-                print("✓ Opened Settings")
-                
-                await self.page.screenshot(path='screenshot_14_settings.png')
-            
-            # Find Delete Account
+            # Find and click Delete Account button
+            print("\n→ Looking for Delete Account button...")
             delete_btn = await self.page.query_selector("button:has-text('Delete Account'), button:has-text('Delete account')")
             if not delete_btn:
                 print("WARNING: No Delete Account button found")
+                await self.page.screenshot(path='screenshot_error_no_delete_btn.png')
                 return False
             
             await delete_btn.click()
             await self.page.wait_for_timeout(2000)
-            print("✓ Clicked Delete Account")
+            print("✓ Clicked Delete Account button")
             
-            await self.page.screenshot(path='screenshot_15_delete_confirm.png')
+            await self.page.screenshot(path='screenshot_13_delete_dialog.png')
             
-            # Confirm
-            confirm_btn = await self.page.query_selector("button:has-text('Confirm'), button:has-text('Delete'), button:has-text('Yes')")
+            # Fill in the email field
+            print("\n→ Filling in email field...")
+            email_input = await self.page.query_selector("input[type='email'], input[placeholder*='email' i], input[name*='email' i]")
+            if email_input:
+                await email_input.fill("rileyrmarketing@gmail.com")
+                print("✓ Filled in email: rileyrmarketing@gmail.com")
+            else:
+                print("WARNING: Email input not found")
+            
+            await self.page.wait_for_timeout(1000)
+            await self.page.screenshot(path='screenshot_14_email_filled.png')
+            
+            # Click the dropdown for reason
+            print("\n→ Looking for reason dropdown...")
+            dropdown_btn = await self.page.query_selector("button:has-text('Select a reason'), select, [role='combobox']")
+            if dropdown_btn:
+                await dropdown_btn.click()
+                await self.page.wait_for_timeout(1000)
+                print("✓ Opened reason dropdown")
+                
+                await self.page.screenshot(path='screenshot_15_dropdown_open.png')
+                
+                # Select "Too expensive" option
+                print("\n→ Selecting 'Too expensive' option...")
+                expensive_option = await self.page.query_selector("text='Too expensive', [role='option']:has-text('Too expensive')")
+                if expensive_option:
+                    await expensive_option.click()
+                    await self.page.wait_for_timeout(1000)
+                    print("✓ Selected 'Too expensive'")
+                else:
+                    print("WARNING: 'Too expensive' option not found")
+            else:
+                print("WARNING: Reason dropdown not found")
+            
+            await self.page.screenshot(path='screenshot_16_reason_selected.png')
+            
+            # Find and click final confirm/delete button
+            print("\n→ Looking for final confirmation button...")
+            confirm_btn = await self.page.query_selector("button:has-text('Delete'), button:has-text('Confirm'), button[type='submit']")
             if confirm_btn:
                 await confirm_btn.click()
                 await self.page.wait_for_timeout(3000)
                 print("✓ Confirmed deletion")
+            else:
+                print("WARNING: Confirmation button not found")
             
-            await self.page.screenshot(path='screenshot_16_deleted.png')
+            await self.page.screenshot(path='screenshot_17_deleted.png')
             
-            print("\n✓ Account deleted!")
+            print("\n✓ Account deletion process completed!")
             return True
             
         except Exception as e:
@@ -990,7 +1013,6 @@ class LindyAutomationPlaywright:
             traceback.print_exc()
             await self.page.screenshot(path='screenshot_error_delete.png')
             return False
-    
     async def cleanup(self):
         """Cleanup"""
         print("\nClosing browser...")
