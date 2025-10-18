@@ -603,6 +603,15 @@ class LindyAutomationPlaywright:
             # Wait for secret to be displayed
             await self.page.wait_for_timeout(2000)
             
+            # Helper function to validate if string is a hex secret
+            def is_hex_secret(value):
+                """Check if value is a hexadecimal secret key (like c8f50ee43017ae1e59be6f1e2c5b1389fc304f6a3ff14a0e7a7735b8f159b300)"""
+                if not value or len(value) < 40:
+                    return False
+                # Check if it's all hexadecimal characters (0-9, a-f)
+                import re
+                return bool(re.match(r'^[0-9a-fA-F]{40,}$', value.strip()))
+            
             token_copy_selectors = [
                 "button:has-text('Copy')",
                 "button[title*='Copy' i]",
@@ -634,14 +643,16 @@ class LindyAutomationPlaywright:
                                 })
                                 clipboard_value = clipboard_data['result']['value']
                                 
-                                # Check if this looks like a secret token (not a URL)
-                                if clipboard_value and 'http' not in clipboard_value.lower() and len(clipboard_value) > 20:
-                                    self.auth_token = clipboard_value
-                                    print(f"✓ Got auth token from clipboard: {self.auth_token[:20]}...")
+                                print(f"→ Clipboard contains: {clipboard_value[:60]}...")
+                                
+                                # Check if this is a hexadecimal secret key
+                                if is_hex_secret(clipboard_value):
+                                    self.auth_token = clipboard_value.strip()
+                                    print(f"✓ Got hex secret token from clipboard: {self.auth_token[:20]}... (length: {len(self.auth_token)})")
                                     token_copied = True
                                     break
                                 else:
-                                    print(f"→ Clipboard contains: {clipboard_value[:50]}... (not a token, trying next button)")
+                                    print(f"→ Not a hex secret (trying next button)")
                             except Exception as e:
                                 print(f"→ Error getting from clipboard: {e}")
                         except Exception as e:
@@ -663,7 +674,8 @@ class LindyAutomationPlaywright:
                     "code",
                     "pre",
                     "div[role='dialog'] input",
-                    "div[role='dialog'] code"
+                    "div[role='dialog'] code",
+                    "div[role='dialog'] pre"
                 ]
                 
                 for selector in token_selectors:
@@ -673,11 +685,13 @@ class LindyAutomationPlaywright:
                         
                         for token_element in token_elements:
                             token_value = await token_element.input_value() if selector.startswith('input') else await token_element.text_content()
-                            if token_value and len(token_value) > 20 and 'http' not in token_value.lower():
-                                self.auth_token = token_value.strip()
-                                print(f"✓ Got auth token from {selector}: {self.auth_token[:20]}...")
-                                token_copied = True
-                                break
+                            if token_value:
+                                print(f"→ Element contains: {token_value[:60]}...")
+                                if is_hex_secret(token_value):
+                                    self.auth_token = token_value.strip()
+                                    print(f"✓ Got hex secret token from {selector}: {self.auth_token[:20]}... (length: {len(self.auth_token)})")
+                                    token_copied = True
+                                    break
                         
                         if token_copied:
                             break
@@ -685,7 +699,7 @@ class LindyAutomationPlaywright:
                         continue
             
             if not token_copied:
-                print("WARNING: Could not retrieve auth token")
+                print("WARNING: Could not retrieve hex secret token")
                 self.auth_token = ""
             
             # Close dialog
