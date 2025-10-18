@@ -779,97 +779,12 @@ class LindyAutomationPlaywright:
             
             return True
                         
-                        if token_copied:
-                            break
-                    except Exception as e:
-                        print(f"→ Error with selector: {e}")
-                        continue
-            
-            # If copy button didn't work, try to read secret directly from page elements
-            if not token_copied:
-                print("\n→ Trying to read secret directly from page elements...")
-                secret_selectors = [
-                    "div[role='dialog'] input[readonly]",
-                    "div[role='dialog'] input[type='text']",
-                    "div[role='dialog'] code",
-                    "div[role='dialog'] pre",
-                    "[role='dialog'] input[readonly]",
-                    "[role='dialog'] code"
-                ]
-                
-                for selector in secret_selectors:
-                    try:
-                        elements = await self.page.query_selector_all(selector)
-                        print(f"→ Found {len(elements)} elements with selector: {selector}")
-                        
-                        for element in elements:
-                            try:
-                                value = await element.input_value() if 'input' in selector else await element.text_content()
-                                if value:
-                                    print(f"→ Element contains: {value[:60]}...")
-                                    if is_hex_secret(value):
-                                        self.auth_token = value.strip()
-                                        print(f"✓ Got hex secret from element: {self.auth_token[:20]}... (length: {len(self.auth_token)})")
-                                        token_copied = True
-                                        break
-                            except:
-                                continue
-                        
-                        if token_copied:
-                            break
-                    except:
-                        continue
-            
-            if not token_copied:
-                print("WARNING: Could not retrieve hex secret token")
-                await self.page.screenshot(path='screenshot_error_no_secret.png')
-                print("✓ Screenshot saved: screenshot_error_no_secret.png")
-                self.auth_token = ""
-            
-            # Close dialog
-            print("\n→ Closing secret dialog...")
-            await self.page.keyboard.press('Escape')
-            await self.page.wait_for_timeout(1000)
-            print("✓ Closed dialog")
-            
-            return True
-            await self.page.wait_for_timeout(1000)
-            print("✓ Closed dialog")
-            
-            return True
-        
         except Exception as e:
             print(f"Error configuring webhook: {e}")
             import traceback
             traceback.print_exc()
             await self.page.screenshot(path='screenshot_error_webhook.png')
             return False
-    
-    async def deploy_lindy(self):
-        """Deploy the agent"""
-        print("\n" + "="*70)
-        print("DEPLOYING AGENT")
-        print("="*70)
-        
-        try:
-            deploy_btn = await self.page.query_selector("button:has-text('Deploy')")
-            if not deploy_btn:
-                print("WARNING: No Deploy button found - may already be deployed")
-                return True
-            
-            await deploy_btn.click()
-            await self.page.wait_for_timeout(5000)
-            print("✓ Clicked Deploy")
-            
-            await self.page.screenshot(path='screenshot_7_deployed.png')
-            return True
-            
-        except Exception as e:
-            print(f"Note: Deploy: {e}")
-            return True
-    
-    async def configure_n8n(self):
-        """Configure N8N"""
         print("\n" + "="*70)
         print("CONFIGURING N8N")
         print("="*70)
