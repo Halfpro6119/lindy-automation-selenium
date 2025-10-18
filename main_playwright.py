@@ -694,26 +694,6 @@ class LindyAutomationPlaywright:
             print("✓ Closed dialog")
             
             return True
-                                    token_copied = True
-                                    break
-                        except:
-                            continue
-                
-                if not token_copied:
-                    print("WARNING: Could not retrieve auth token")
-                    self.auth_token = ""
-                
-                # Close dialog
-                print("\n→ Closing secret dialog...")
-                await self.page.keyboard.press('Escape')
-                await self.page.wait_for_timeout(1000)
-                print("✓ Closed dialog")
-            else:
-                print("WARNING: No secret button found")
-                self.auth_token = ""
-            
-            return True
-            return True
         
         except Exception as e:
             print(f"Error configuring webhook: {e}")
