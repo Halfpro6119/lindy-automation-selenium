@@ -597,8 +597,8 @@ class LindyAutomationPlaywright:
                 await self.page.screenshot(path='screenshot_error_no_second_generate.png')
                 print("✓ Screenshot saved: screenshot_error_no_second_generate.png")
             
-            # STEP 3: Copy the newly generated secret key to clipboard
-            print("\n→ Looking for copy button to copy the new secret key...")
+            # STEP 3: Find and click the copy button next to the newly generated secret in the dialog
+            print("\n→ Looking for copy button next to the secret key in dialog...")
             
             # Wait for secret to be displayed
             await self.page.wait_for_timeout(2000)
@@ -612,26 +612,35 @@ class LindyAutomationPlaywright:
                 import re
                 return bool(re.match(r'^[0-9a-fA-F]{40,}$', value.strip()))
             
-            token_copy_selectors = [
-                "button:has-text('Copy')",
-                "button[title*='Copy' i]",
-                "button[aria-label*='Copy' i]",
-                "div[role='dialog'] button:has-text('Copy')"
+            # Look specifically for copy buttons within the dialog
+            dialog_copy_selectors = [
+                "div[role='dialog'] button[title*='Copy' i]",
+                "div[role='dialog'] button[aria-label*='Copy' i]",
+                "[role='dialog'] button[title*='Copy' i]",
+                "[role='dialog'] button[aria-label*='Copy' i]",
+                "div[role='dialog'] button:has-text('Copy')",
+                "[role='dialog'] button:has-text('Copy')"
             ]
             
             token_copied = False
-            for selector in token_copy_selectors:
+            
+            # First, try to find copy buttons specifically in the dialog
+            for selector in dialog_copy_selectors:
                 try:
-                    # Find all copy buttons
                     copy_buttons = await self.page.query_selector_all(selector)
-                    print(f"→ Found {len(copy_buttons)} copy buttons")
+                    print(f"→ Found {len(copy_buttons)} copy buttons in dialog with selector: {selector}")
                     
-                    # Try each copy button (the secret key copy button should be visible in the dialog)
                     for i, copy_btn in enumerate(copy_buttons):
                         try:
-                            print(f"→ Trying copy button {i+1}...")
+                            # Check if button is visible
+                            is_visible = await copy_btn.is_visible()
+                            if not is_visible:
+                                print(f"→ Copy button {i+1} is not visible, skipping")
+                                continue
+                            
+                            print(f"→ Clicking copy button {i+1} in dialog...")
                             await copy_btn.click(force=True)
-                            await self.page.wait_for_timeout(1000)
+                            await self.page.wait_for_timeout(1500)
                             print(f"✓ Clicked copy button {i+1}")
                             
                             # Get token from clipboard
@@ -643,7 +652,7 @@ class LindyAutomationPlaywright:
                                 })
                                 clipboard_value = clipboard_data['result']['value']
                                 
-                                print(f"→ Clipboard contains: {clipboard_value[:60]}...")
+                                print(f"→ Clipboard contains: {clipboard_value[:60] if clipboard_value else 'empty'}...")
                                 
                                 # Check if this is a hexadecimal secret key
                                 if is_hex_secret(clipboard_value):
@@ -662,36 +671,86 @@ class LindyAutomationPlaywright:
                     if token_copied:
                         break
                 except Exception as e:
-                    print(f"→ Error with copy button selector: {e}")
+                    print(f"→ Error with selector {selector}: {e}")
                     continue
             
-            # If copy button didn't work, try to get token from input field or text element
+            # If dialog-specific copy didn't work, try all copy buttons on page
             if not token_copied:
-                print("\n→ Trying to get token from input field or text element...")
-                token_selectors = [
-                    "input[readonly]",
-                    "input[type='text'][value]",
-                    "code",
-                    "pre",
-                    "div[role='dialog'] input",
-                    "div[role='dialog'] code",
-                    "div[role='dialog'] pre"
+                print("\n→ Trying all copy buttons on page...")
+                all_copy_selectors = [
+                    "button:has-text('Copy')",
+                    "button[title*='Copy' i]",
+                    "button[aria-label*='Copy' i]"
                 ]
                 
-                for selector in token_selectors:
+                for selector in all_copy_selectors:
                     try:
-                        token_elements = await self.page.query_selector_all(selector)
-                        print(f"→ Found {len(token_elements)} elements matching: {selector}")
+                        copy_buttons = await self.page.query_selector_all(selector)
+                        print(f"→ Found {len(copy_buttons)} total copy buttons with selector: {selector}")
                         
-                        for token_element in token_elements:
-                            token_value = await token_element.input_value() if selector.startswith('input') else await token_element.text_content()
-                            if token_value:
-                                print(f"→ Element contains: {token_value[:60]}...")
-                                if is_hex_secret(token_value):
-                                    self.auth_token = token_value.strip()
-                                    print(f"✓ Got hex secret token from {selector}: {self.auth_token[:20]}... (length: {len(self.auth_token)})")
+                        for i, copy_btn in enumerate(copy_buttons):
+                            try:
+                                is_visible = await copy_btn.is_visible()
+                                if not is_visible:
+                                    continue
+                                
+                                print(f"→ Clicking copy button {i+1}...")
+                                await copy_btn.click(force=True)
+                                await self.page.wait_for_timeout(1500)
+                                
+                                cdp = await self.context.new_cdp_session(self.page)
+                                clipboard_data = await cdp.send('Runtime.evaluate', {
+                                    'expression': 'navigator.clipboard.readText()',
+                                    'awaitPromise': True
+                                })
+                                clipboard_value = clipboard_data['result']['value']
+                                
+                                print(f"→ Clipboard: {clipboard_value[:60] if clipboard_value else 'empty'}...")
+                                
+                                if is_hex_secret(clipboard_value):
+                                    self.auth_token = clipboard_value.strip()
+                                    print(f"✓ Got hex secret token: {self.auth_token[:20]}... (length: {len(self.auth_token)})")
                                     token_copied = True
                                     break
+                            except Exception as e:
+                                print(f"→ Error with button {i+1}: {e}")
+                                continue
+                        
+                        if token_copied:
+                            break
+                    except Exception as e:
+                        print(f"→ Error with selector: {e}")
+                        continue
+            
+            # If copy button didn't work, try to read secret directly from page elements
+            if not token_copied:
+                print("\n→ Trying to read secret directly from page elements...")
+                secret_selectors = [
+                    "div[role='dialog'] input[readonly]",
+                    "div[role='dialog'] input[type='text']",
+                    "div[role='dialog'] code",
+                    "div[role='dialog'] pre",
+                    "[role='dialog'] input[readonly]",
+                    "[role='dialog'] code"
+                ]
+                
+                for selector in secret_selectors:
+                    try:
+                        elements = await self.page.query_selector_all(selector)
+                        print(f"→ Found {len(elements)} elements with selector: {selector}")
+                        
+                        for element in elements:
+                            try:
+                                value = await element.input_value() if 'input' in selector else await element.text_content()
+                                if value:
+                                    print(f"→ Element contains: {value[:60]}...")
+                                    if is_hex_secret(value):
+                                        self.auth_token = value.strip()
+                                        print(f"✓ Got hex secret from element: {self.auth_token[:20]}... (length: {len(self.auth_token)})")
+                                        token_copied = True
+                                        break
+                            except:
+                                continue
                         
                         if token_copied:
                             break
@@ -700,11 +759,17 @@ class LindyAutomationPlaywright:
             
             if not token_copied:
                 print("WARNING: Could not retrieve hex secret token")
+                await self.page.screenshot(path='screenshot_error_no_secret.png')
+                print("✓ Screenshot saved: screenshot_error_no_secret.png")
                 self.auth_token = ""
             
             # Close dialog
             print("\n→ Closing secret dialog...")
             await self.page.keyboard.press('Escape')
+            await self.page.wait_for_timeout(1000)
+            print("✓ Closed dialog")
+            
+            return True
             await self.page.wait_for_timeout(1000)
             print("✓ Closed dialog")
             
