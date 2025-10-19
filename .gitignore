@@ -57,3 +57,8 @@ lindy_session.json
 # OAuth tokens
 token.pickle
 credentials.json
+
+# Google authentication files
+google_cookies.json
+google_token.pickle
+oauth_credentials.json
