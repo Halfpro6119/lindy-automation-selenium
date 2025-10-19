@@ -46,3 +46,14 @@ server.log
 # Selenium
 geckodriver.log
 chromedriver.log
+
+# Browser profiles and session data
+browser_profile/
+lindy_session.json
+
+# Environment variables
+.env
+
+# OAuth tokens
+token.pickle
+credentials.json
