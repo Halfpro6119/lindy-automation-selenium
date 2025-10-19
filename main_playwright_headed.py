@@ -984,115 +984,197 @@ class LindyAutomationPlaywright:
             await self.page.screenshot(path='screenshot_12_settings_page.png')
             print("✓ Navigated to settings page")
             
-            # Find and click Delete Account button - try multiple selectors
-            print("\n→ Looking for Delete Account button...")
+            # Scroll down to find the delete account section
+            print("\n→ Scrolling to find delete account section...")
+            await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await self.page.wait_for_timeout(2000)
             
-            # Try different ways to find the button
-            delete_btn = None
-            selectors = [
+            # Find and click Delete Account button
+            print("\n→ Looking for Delete Account button...")
+            delete_account_btn = None
+            
+            delete_account_selectors = [
                 "button:has-text('Delete Account')",
                 "button:has-text('Delete account')",
-                "button:has-text('delete account')",
-                "//button[contains(text(), 'Delete')]",
-                "//button[contains(., 'Delete Account')]",
-                "[data-testid*='delete']",
-                "button[class*='delete']"
+                "//button[contains(text(), 'Delete Account')]",
+                "//button[contains(text(), 'Delete account')]"
             ]
             
-            for selector in selectors:
+            for selector in delete_account_selectors:
                 try:
                     if selector.startswith("//"):
-                        delete_btn = await self.page.locator(f"xpath={selector}").first
+                        buttons = await self.page.locator(f"xpath={selector}").all()
                     else:
-                        delete_btn = await self.page.locator(selector).first
+                        buttons = await self.page.locator(selector).all()
                     
-                    if await delete_btn.count() > 0:
-                        print(f"✓ Found Delete Account button with selector: {selector}")
+                    for btn in buttons:
+                        if await btn.is_visible():
+                            text = await btn.inner_text()
+                            if 'delete account' in text.lower():
+                                delete_account_btn = btn
+                                print(f"✓ Found Delete Account button with text: {text}")
+                                break
+                    
+                    if delete_account_btn:
                         break
-                    delete_btn = None
                 except:
                     continue
             
-            if not delete_btn:
-                print("WARNING: No Delete Account button found with standard selectors")
-                print("→ Trying to find any button with 'delete' text...")
-                # Get all buttons and check their text
-                all_buttons = await self.page.locator("button").all()
-                for btn in all_buttons:
-                    text = await btn.inner_text()
-                    if 'delete' in text.lower() and 'account' in text.lower():
-                        delete_btn = btn
-                        print(f"✓ Found button with text: {text}")
-                        break
-            
-            if not delete_btn:
+            if not delete_account_btn:
                 print("ERROR: Could not find Delete Account button")
-                await self.page.screenshot(path='screenshot_error_no_delete_btn.png')
+                await self.page.screenshot(path='screenshot_error_no_delete_account_btn.png')
                 return False
             
-            await delete_btn.click()
-            await self.page.wait_for_timeout(3000)
+            # Click the Delete Account button to open the dialog
+            await delete_account_btn.click()
             print("✓ Clicked Delete Account button")
             
-            await self.page.screenshot(path='screenshot_13_delete_dialog.png')
+            # IMPORTANT: Wait for the dialog/modal to appear
+            print("\n→ Waiting for delete account dialog to appear...")
+            await self.page.wait_for_timeout(3000)
+            
+            await self.page.screenshot(path='screenshot_13_dialog_opened.png')
+            
+            # First, let's identify what elements are in the dialog
+            print("\n→ Identifying elements in the dialog...")
+            
+            # Get all visible text in the dialog
+            try:
+                dialog_text = await self.page.locator("body").inner_text()
+                if "Account email" in dialog_text:
+                    print("✓ Found 'Account email' text in dialog")
+                if "Select a reason" in dialog_text:
+                    print("✓ Found 'Select a reason' text in dialog")
+            except:
+                pass
+            
+            # Look for all input fields in the dialog
+            print("\n→ Looking for input fields in dialog...")
+            all_inputs = await self.page.locator("input[type='email'], input[type='text']").all()
+            print(f"Found {len(all_inputs)} input fields")
+            
+            for i, inp in enumerate(all_inputs):
+                try:
+                    if await inp.is_visible():
+                        placeholder = await inp.get_attribute('placeholder')
+                        name = await inp.get_attribute('name')
+                        print(f"  Input {i}: placeholder='{placeholder}', name='{name}'")
+                except:
+                    pass
+            
+            # Look for all buttons in the dialog
+            print("\n→ Looking for buttons in dialog...")
+            all_buttons = await self.page.locator("button").all()
+            visible_buttons = []
+            for btn in all_buttons:
+                try:
+                    if await btn.is_visible():
+                        text = await btn.inner_text()
+                        if text.strip():
+                            visible_buttons.append(text.strip())
+                except:
+                    pass
+            print(f"Visible buttons: {visible_buttons}")
+            
+            # Now find and fill the "Account email" field
+            print("\n→ Looking for 'Account email' field...")
+            email_input = None
+            
+            # Strategy 1: Look for input near "Account email" label
+            try:
+                # Find all inputs that are visible
+                inputs = await self.page.locator("input").all()
+                for inp in inputs:
+                    if await inp.is_visible():
+                        # Check if this input is near "Account email" text
+                        # Try to get the label or nearby text
+                        try:
+                            # Get the parent element and check its text
+                            parent = await inp.evaluate_handle("el => el.parentElement")
+                            parent_text = await parent.evaluate("el => el.textContent")
+                            
+                            if "account email" in parent_text.lower():
+                                email_input = inp
+                                print("✓ Found Account email input via parent text")
+                                break
+                        except:
+                            pass
+                        
+                        # Check placeholder
+                        try:
+                            placeholder = await inp.get_attribute('placeholder')
+                            if placeholder and 'email' in placeholder.lower():
+                                email_input = inp
+                                print(f"✓ Found email input via placeholder: {placeholder}")
+                                break
+                        except:
+                            pass
+            except Exception as e:
+                print(f"Error finding email input: {e}")
+            
+            # Strategy 2: If not found, look for any visible email/text input in a dialog/modal
+            if not email_input:
+                print("→ Trying alternative method: looking for inputs in modal/dialog...")
+                try:
+                    # Look for inputs within a dialog, modal, or overlay
+                    modal_selectors = [
+                        "[role='dialog'] input",
+                        "[role='alertdialog'] input",
+                        ".modal input",
+                        ".dialog input",
+                        "div[class*='modal'] input",
+                        "div[class*='dialog'] input"
+                    ]
+                    
+                    for selector in modal_selectors:
+                        inputs = await self.page.locator(selector).all()
+                        if len(inputs) > 0:
+                            for inp in inputs:
+                                if await inp.is_visible():
+                                    email_input = inp
+                                    print(f"✓ Found input in modal with selector: {selector}")
+                                    break
+                        if email_input:
+                            break
+                except:
+                    pass
             
             # Fill in the email field
-            print("\n→ Filling in email field...")
-            email_input = None
-            email_selectors = [
-                "input[type='email']",
-                "input[placeholder*='email' i]",
-                "input[name*='email' i]",
-                "input[id*='email' i]",
-                "//input[contains(@placeholder, 'email')]",
-                "//input[contains(@placeholder, 'Email')]"
-            ]
-            
-            for selector in email_selectors:
-                try:
-                    if selector.startswith("//"):
-                        email_input = await self.page.locator(f"xpath={selector}").first
-                    else:
-                        email_input = await self.page.locator(selector).first
-                    
-                    if await email_input.count() > 0:
-                        print(f"✓ Found email input with selector: {selector}")
-                        break
-                    email_input = None
-                except:
-                    continue
-            
             if email_input:
-                await email_input.fill("rileyrmarketing@gmail.com")
+                await email_input.click()
                 await self.page.wait_for_timeout(500)
+                await email_input.fill("rileyrmarketing@gmail.com")
+                await self.page.wait_for_timeout(1000)
                 print("✓ Filled in email: rileyrmarketing@gmail.com")
+                await self.page.screenshot(path='screenshot_14_email_filled.png')
             else:
-                print("WARNING: Email input not found")
+                print("ERROR: Could not find Account email input field")
+                await self.page.screenshot(path='screenshot_error_no_email_input.png')
             
-            await self.page.wait_for_timeout(1000)
-            await self.page.screenshot(path='screenshot_14_email_filled.png')
-            
-            # Click the dropdown for reason
-            print("\n→ Looking for reason dropdown...")
+            # Look for the "Select a reason for deleting your account" dropdown
+            print("\n→ Looking for 'Select a reason' dropdown...")
             dropdown_btn = None
+            
             dropdown_selectors = [
                 "button:has-text('Select a reason')",
                 "button:has-text('select a reason')",
                 "[role='combobox']",
-                "select",
                 "//button[contains(text(), 'Select a reason')]",
-                "//button[contains(text(), 'reason')]"
+                "//button[contains(., 'reason')]",
+                "[role='dialog'] button[role='combobox']",
+                ".modal button[role='combobox']"
             ]
             
             for selector in dropdown_selectors:
                 try:
                     if selector.startswith("//"):
-                        dropdown_btn = await self.page.locator(f"xpath={selector}").first
+                        dropdown_btn = self.page.locator(f"xpath={selector}").first
                     else:
-                        dropdown_btn = await self.page.locator(selector).first
+                        dropdown_btn = self.page.locator(selector).first
                     
-                    if await dropdown_btn.count() > 0:
-                        print(f"✓ Found dropdown with selector: {selector}")
+                    if await dropdown_btn.count() > 0 and await dropdown_btn.is_visible():
+                        btn_text = await dropdown_btn.inner_text()
+                        print(f"✓ Found dropdown with selector: {selector}, text: '{btn_text}'")
                         break
                     dropdown_btn = None
                 except:
@@ -1108,22 +1190,25 @@ class LindyAutomationPlaywright:
                 # Select "Too expensive" option
                 print("\n→ Selecting 'Too expensive' option...")
                 expensive_option = None
+                
                 option_selectors = [
                     "text='Too expensive'",
+                    "text=/Too expensive/i",
                     "[role='option']:has-text('Too expensive')",
                     "//div[contains(text(), 'Too expensive')]",
                     "//li[contains(text(), 'Too expensive')]",
-                    "[data-value*='expensive']"
+                    "div:has-text('Too expensive')",
+                    "li:has-text('Too expensive')"
                 ]
                 
                 for selector in option_selectors:
                     try:
                         if selector.startswith("//"):
-                            expensive_option = await self.page.locator(f"xpath={selector}").first
+                            expensive_option = self.page.locator(f"xpath={selector}").first
                         else:
-                            expensive_option = await self.page.locator(selector).first
+                            expensive_option = self.page.locator(selector).first
                         
-                        if await expensive_option.count() > 0:
+                        if await expensive_option.count() > 0 and await expensive_option.is_visible():
                             print(f"✓ Found 'Too expensive' option with selector: {selector}")
                             break
                         expensive_option = None
@@ -1134,46 +1219,59 @@ class LindyAutomationPlaywright:
                     await expensive_option.click()
                     await self.page.wait_for_timeout(1000)
                     print("✓ Selected 'Too expensive'")
+                    await self.page.screenshot(path='screenshot_16_reason_selected.png')
                 else:
-                    print("WARNING: 'Too expensive' option not found")
+                    print("ERROR: 'Too expensive' option not found")
+                    await self.page.screenshot(path='screenshot_error_no_expensive_option.png')
             else:
-                print("WARNING: Reason dropdown not found")
+                print("ERROR: Reason dropdown not found")
+                await self.page.screenshot(path='screenshot_error_no_dropdown.png')
             
-            await self.page.screenshot(path='screenshot_16_reason_selected.png')
+            # Find and click the final Delete button (not "Delete Account")
+            print("\n→ Looking for final Delete button...")
+            delete_btn = None
             
-            # Find and click final confirm/delete button
-            print("\n→ Looking for final confirmation button...")
-            confirm_btn = None
-            confirm_selectors = [
-                "button:has-text('Delete')",
-                "button:has-text('Confirm')",
-                "button[type='submit']",
-                "//button[contains(text(), 'Delete')]",
-                "//button[contains(text(), 'Confirm')]"
+            # Wait a bit to ensure the button is enabled
+            await self.page.wait_for_timeout(1000)
+            
+            # Look for Delete button in the dialog
+            delete_selectors = [
+                "[role='dialog'] button:has-text('Delete')",
+                ".modal button:has-text('Delete')",
+                "button:has-text('Delete'):not(:has-text('Account'))",
+                "//button[text()='Delete']",
+                "//div[@role='dialog']//button[contains(text(), 'Delete')]"
             ]
             
-            for selector in confirm_selectors:
+            for selector in delete_selectors:
                 try:
                     if selector.startswith("//"):
-                        confirm_btn = await self.page.locator(f"xpath={selector}").first
+                        buttons = await self.page.locator(f"xpath={selector}").all()
                     else:
-                        confirm_btn = await self.page.locator(selector).first
+                        buttons = await self.page.locator(selector).all()
                     
-                    if await confirm_btn.count() > 0:
-                        print(f"✓ Found confirmation button with selector: {selector}")
+                    for btn in buttons:
+                        if await btn.is_visible():
+                            text = await btn.inner_text()
+                            # Make sure it's just "Delete" and not "Delete Account"
+                            if text.strip().lower() == 'delete':
+                                delete_btn = btn
+                                print(f"✓ Found Delete button with text: '{text}'")
+                                break
+                    
+                    if delete_btn:
                         break
-                    confirm_btn = None
                 except:
                     continue
             
-            if confirm_btn:
-                await confirm_btn.click()
+            if delete_btn:
+                await delete_btn.click()
                 await self.page.wait_for_timeout(3000)
-                print("✓ Confirmed deletion")
+                print("✓ Clicked Delete button")
+                await self.page.screenshot(path='screenshot_17_deleted.png')
             else:
-                print("WARNING: Confirmation button not found")
-            
-            await self.page.screenshot(path='screenshot_17_deleted.png')
+                print("ERROR: Final Delete button not found")
+                await self.page.screenshot(path='screenshot_error_no_delete_btn.png')
             
             print("\n✓ Account deletion process completed!")
             return True
@@ -1184,6 +1282,7 @@ class LindyAutomationPlaywright:
             traceback.print_exc()
             await self.page.screenshot(path='screenshot_error_delete.png')
             return False
+
     async def run(self):
         """Run the automation"""
         try:
