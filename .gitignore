@@ -1,5 +1,6 @@
-# Configuration file with sensitive data
-config.py
+# Sensitive cookie files - DO NOT COMMIT
+google_cookies.json
+google_cookies_base64.txt
 
 # Python
 __pycache__/
@@ -7,58 +8,16 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
+env/
 venv/
 ENV/
-env/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# Logs
+*.log
+
+# Screenshots
+*.png
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-server.log
-
-# Selenium
-geckodriver.log
-chromedriver.log
-
-# Browser profiles and session data
-browser_profile/
-lindy_session.json
-
-# Environment variables
-.env
-
-# OAuth tokens
-token.pickle
-credentials.json
-
-# Google authentication files
-google_cookies.json
-google_token.pickle
-oauth_credentials.json
