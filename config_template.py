@@ -21,7 +21,7 @@ GITHUB_USERNAME = "your-github-username"
 
 # Lindy URLs
 LINDY_SIGNUP_URL = "https://chat.lindy.ai"
-LINDY_TEMPLATE_URL = "https://chat.lindy.ai/home/?templateId=68e899729c209dc0d3337fe1"
+LINDY_TEMPLATE_URL = "https://chat.lindy.ai/home/?templateId=68e5dd479651421f3052eaa6"
 
 # N8N URL
 N8N_URL = "https://n8n-lead-processing-jjde.bolt.host/"
