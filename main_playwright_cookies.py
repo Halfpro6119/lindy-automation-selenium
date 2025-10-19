@@ -12,7 +12,6 @@ import time
 # import asyncio - not needed for sync
 import os
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
-import config
 
 
 
