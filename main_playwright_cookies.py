@@ -1,35 +1,68 @@
-#!/usr/bin/env python3
 """
-Lindy Automation with Cookie-Based Google Authentication
-Runs in GitHub Actions without OAuth setup
+Lindy Automation Script - Headed Mode (Visible Browser)
+This version runs with a visible browser so you can see what's happening
+Browser stays open throughout the entire process
 """
-
-from playwright.sync_api import sync_playwright
+import os
+import base64
 import json
-import sys
-from datetime import datetime
 
-def load_cookies():
-    """Load Google cookies from file"""
+
+import time
+# import asyncio - not needed for sync
+import os
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+import config
+
+
+
+def load_cookies_from_secret():
+    """Load cookies from GitHub Secret (base64 encoded)"""
     try:
-        with open('google_cookies.json', 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print("❌ Error: google_cookies.json not found")
-        sys.exit(1)
+        cookies_b64 = os.environ.get('GOOGLE_COOKIES', '')
+        if not cookies_b64:
+            print("ERROR: GOOGLE_COOKIES secret not found")
+            return None
+        
+        # Decode base64
+        cookies_json = base64.b64decode(cookies_b64).decode('utf-8')
+        cookies = json.loads(cookies_json)
+        
+        print(f"✓ Loaded {len(cookies)} cookies from GitHub secret")
+        return cookies
+    except Exception as e:
+        print(f"ERROR loading cookies: {e}")
+        return None
 
-def run_automation():
-    """Run the automation with cookie authentication"""
-    print("="*70)
-    print("LINDY AUTOMATION - COOKIE AUTH")
-    print("="*70)
-    print(f"Started at: {datetime.now()}")
-    
-    with sync_playwright() as p:
-        # Launch browser (headless for GitHub Actions)
-        browser = p.chromium.launch(
-            headless=True,
+class LindyAutomationPlaywright:
+    def __init__(self):
+        """Initialize the automation"""
+        print("Initializing Playwright automation...")
+        self.browser = None
+        self.context = None
+        self.page = None
+        self.lindy_url = None
+        self.auth_token = None
+        self.playwright = None
+        self.session_file = "lindy_session.json"
+        
+    def setup(self, use_saved_session=True):
+        """Setup browser"""
+        print("Setting up browser...")
+        
+        # Load cookies from GitHub secret
+        cookies = load_cookies_from_secret()
+        if not cookies:
+            raise Exception("Failed to load cookies from GitHub secret")
+        
+        self.cookies_to_load = cookies
+        self.playwright = sync_playwright().start()
+        
+        # Launch browser in HEADED mode (visible) with larger window
+        self.browser = self.playwright.chromium.launch(
+            headless=True,  # Browser is visible
             args=[
+                '--start-maximized',  # Start maximized
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
@@ -37,104 +70,1347 @@ def run_automation():
             ]
         )
         
-        context = browser.new_context(
+        # Check if we have a saved session
+        storage_state = None
+        if use_saved_session and os.path.exists(self.session_file):
+            print(f"✓ Found saved session file: {self.session_file}")
+            storage_state = self.session_file
+        
+        # Create context with larger viewport
+        self.context = self.browser.new_context(
             viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+        
+        # Add cookies to context for authentication
+        if hasattr(self, 'cookies_to_load') and self.cookies_to_load:
+            self.context.add_cookies(self.cookies_to_load)
+            print(f"✓ Added {len(self.cookies_to_load)} cookies to browser context") AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            storage_state=storage_state,
+            permissions=["clipboard-read", "clipboard-write"]  # Grant clipboard permissions
         )
         
-        # Load Google cookies
-        print("\n📦 Loading Google cookies...")
-        cookies = load_cookies()
-        context.add_cookies(cookies)
-        print(f"✓ Loaded {len(cookies)} cookies")
+        self.page = self.context.new_page()
         
-        page = context.new_page()
+        # Hide automation
+        self.page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+            });
+        """)
         
-        # Verify Google authentication
-        print("\n🔐 Verifying Google authentication...")
-        page.goto("https://mail.google.com")
-        page.wait_for_timeout(5000)
+        print("✓ Browser setup complete and visible!")
+        print("✓ You can now see everything the automation is doing")
+        print("✓ Clipboard permissions granted automatically")
         
-        if "inbox" in page.url.lower() or "mail" in page.url.lower():
-            print("✓ Google authentication successful!")
-            print(f"  Current URL: {page.url}")
-        else:
-            print("⚠ Warning: Google authentication may have failed")
-            print(f"  Current URL: {page.url}")
-            page.screenshot(path="google_auth_failed.png")
-        
-        # Navigate to Lindy.ai
-        print("\n🌐 Navigating to Lindy.ai...")
-        page.goto("https://www.lindy.ai")
-        page.wait_for_timeout(3000)
-        page.screenshot(path="lindy_homepage.png")
-        print("✓ Reached Lindy.ai")
-        print(f"  Page title: {page.title()}")
-        
-        # Try to sign in with Google
-        print("\n🔑 Attempting to sign in with Google...")
+    def save_session(self):
+        """Save the current session state"""
         try:
-            # Look for sign in button
-            sign_in_selectors = [
-                'text="Sign in"',
-                'text="Log in"',
-                'text="Get started"',
-                'a:has-text("Sign in")',
-                'button:has-text("Sign in")'
-            ]
+            self.context.storage_state(path=self.session_file)
+            print(f"✓ Session saved to {self.session_file}")
+            return True
+        except Exception as e:
+            print(f"Error saving session: {e}")
+            return False
+    
+    def check_login_status(self):
+        """Check if we're logged into Lindy"""
+        print("\n→ Checking login status...")
+        try:
+            self.page.goto("https://chat.lindy.ai", wait_until='networkidle', timeout=60000)
+            self.page.wait_for_timeout(3000)
             
-            for selector in sign_in_selectors:
-                try:
-                    if page.locator(selector).count() > 0:
-                        print(f"  Found sign in button: {selector}")
-                        page.locator(selector).first.click()
-                        page.wait_for_timeout(2000)
-                        break
-                except:
-                    continue
+            current_url = self.page.url
+            print(f"  Current URL: {current_url}")
             
-            # Look for Google sign in button
-            google_selectors = [
-                'text="Continue with Google"',
-                'text="Sign in with Google"',
-                'button:has-text("Google")',
-                '[aria-label*="Google"]'
-            ]
+            # Check if we're on a workspace/home page (logged in)
+            if 'workspace' in current_url or '/home' in current_url:
+                print("✓ Already logged in!")
+                return True
             
-            for selector in google_selectors:
-                try:
-                    if page.locator(selector).count() > 0:
-                        print(f"  Found Google sign in button: {selector}")
-                        page.locator(selector).first.click()
-                        page.wait_for_timeout(5000)
-                        page.screenshot(path="after_google_signin.png")
-                        print("✓ Clicked Google sign in")
-                        break
-                except:
-                    continue
+            # Check for login/signup page
+            if 'login' in current_url or 'signin' in current_url or 'signup' in current_url:
+                print("✗ Not logged in")
+                return False
             
-            print(f"  Current URL after sign in: {page.url}")
+            # Check for New Agent button with error handling
+            try:
+                new_agent_btn = self.page.query_selector("button:has-text('New Agent')")
+                if new_agent_btn:
+                    print("✓ Already logged in!")
+                    return True
+            except Exception:
+                pass
+            
+            print("✗ Not logged in")
+            return False
             
         except Exception as e:
-            print(f"  Note: {e}")
+            print(f"Error checking login status: {e}")
+            return False
+    
+    def manual_login_prompt(self):
+        """Prompt for manual login - browser stays open"""
+        print("\n" + "="*70)
+        print("MANUAL LOGIN REQUIRED")
+        print("="*70)
+        print("\n→ The browser window is now open and visible")
+        print("→ Please log in manually in the browser window")
+        print("\nSteps:")
+        print("1. Log in to Lindy with your Google account")
+        print("2. Wait until you see the Lindy workspace/home page")
+        print("3. The automation will detect the login and continue automatically")
+        print("\n→ Waiting for you to log in...")
+        print("→ Browser will stay open throughout the entire process")
         
-        # Add your automation logic here
-        print("\n🤖 Running automation tasks...")
-        print("  [Add your custom automation logic here]")
+        # Navigate to Lindy
+        print("\n→ Navigating to Lindy login page...")
+        self.page.goto("https://chat.lindy.ai")
+        self.page.wait_for_timeout(2000)
         
-        # Take final screenshot
-        page.screenshot(path="automation_complete.png")
+        # Wait for login (check every 5 seconds)
+        max_wait = 300  # 5 minutes
+        waited = 0
+        while waited < max_wait:
+            import time; time.sleep(5)
+            waited += 5
+            
+            try:
+                # Wait for page to be stable after navigation
+                self.page.wait_for_load_state('networkidle', timeout=10000)
+            except:
+                pass
+            
+            current_url = self.page.url
+            
+            # Check URL for login success
+            if 'workspace' in current_url or '/home' in current_url:
+                print("\n✓ Login detected!")
+                break
+            
+            # Try to find New Agent button with error handling
+            try:
+                new_agent_btn = self.page.query_selector("button:has-text('New Agent')")
+                if new_agent_btn:
+                    print("\n✓ Login detected!")
+                    break
+            except Exception:
+                # Ignore errors during navigation
+                pass
+            
+            print(f"  Still waiting for login... ({waited}s elapsed)")
         
-        print("\n✅ Automation completed successfully!")
-        print(f"Finished at: {datetime.now()}")
+        # Wait a bit more to ensure page is stable
+        self.page.wait_for_timeout(3000)
         
-        browser.close()
+        # Save the session
+        print("\n→ Saving login session for future use...")
+        self.save_session()
+        print("✓ Session saved!")
+        
+        return True
+    
+    def add_template(self):
+        """Navigate to template and add it to account"""
+        print("\n" + "="*70)
+        print("ADDING TEMPLATE TO ACCOUNT")
+        print("="*70)
+        
+        try:
+            # Navigate to template URL
+            print(f"→ Navigating to template: {config.LINDY_TEMPLATE_URL}")
+            self.page.goto(config.LINDY_TEMPLATE_URL, wait_until='networkidle', timeout=60000)
+            print("✓ Template page loaded")
+            
+            # Wait for page to fully load
+            self.page.wait_for_timeout(5000)
+            
+            # Take screenshot
+            self.page.screenshot(path='screenshot_1_template_page.png', full_page=True)
+            print("→ Screenshot saved: screenshot_1_template_page.png")
+            
+            # Check if we need to login
+            current_url = self.page.url
+            if 'login' in current_url or 'signin' in current_url or 'signup' in current_url:
+                print("✗ ERROR: Not logged in!")
+                return False
+            
+            print(f"→ Current URL: {current_url}")
+            
+            # Find and click the Add button
+            # Use JavaScript to find and click the button to avoid any Playwright click issues
+            print("→ Looking for Add button...")
+            
+            clicked = self.page.evaluate("""
+                () => {
+                    // Find all buttons
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    
+                    // Find button with exact text "Add"
+                    const addButton = buttons.find(btn => {
+                        const text = btn.textContent.trim();
+                        const rect = btn.getBoundingClientRect();
+                        
+                        // Log all buttons with "Add" for debugging
+                        if (text.includes('Add')) {
+                            console.log('Found button:', text, 'at position:', rect.x, rect.y);
+                        }
+                        
+                        // Find the Add button that's visible and in the main content area
+                        // Not in the top navigation (y > 150) and visible
+                        return text === 'Add' && 
+                               rect.y > 150 && 
+                               rect.width > 0 && 
+                               rect.height > 0 &&
+                               window.getComputedStyle(btn).visibility === 'visible';
+                    });
+                    
+                    if (addButton) {
+                        console.log('Clicking Add button at:', addButton.getBoundingClientRect());
+                        addButton.click();
+                        return true;
+                    }
+                    
+                    return false;
+                }
+            """)
+            
+            if clicked:
+                print("✓ Clicked Add button")
+            else:
+                print("✗ Could not find Add button")
+                return False
+            
+            # Wait for navigation
+            self.page.wait_for_timeout(5000)
+            
+            # Check new URL
+            current_url = self.page.url
+            print(f"→ URL after clicking: {current_url}")
+            
+            # Take screenshot
+            self.page.screenshot(path='screenshot_2_after_add.png', full_page=True)
+            print("→ Screenshot saved: screenshot_2_after_add.png")
+            
+            # Navigate to editor view if we're on tasks view
+            if '/tasks' in current_url:
+                editor_url = current_url.replace('/tasks', '/editor')
+                print(f"→ Navigating to editor: {editor_url}")
+                self.page.goto(editor_url, wait_until='networkidle', timeout=60000)
+                self.page.wait_for_timeout(3000)
+                print("✓ Navigated to editor view")
+                
+                self.page.screenshot(path='screenshot_2b_editor_view.png', full_page=True)
+                print("→ Screenshot saved: screenshot_2b_editor_view.png")
+            
+            print("✓ Template added successfully")
+            return True
+            
+        except Exception as e:
+            print(f"✗ Error adding template: {e}")
+            import traceback
+            traceback.print_exc()
+            self.page.screenshot(path='screenshot_error_template.png', full_page=True)
+            return False
+
+    def configure_webhook(self):
+        """Find webhook step and configure it"""
+        print("\n" + "="*70)
+        print("STEP 2: CONFIGURING WEBHOOK")
+        print("="*70)
+        
+        try:
+            # Wait for page to load
+            print("\n→ Waiting for page to load...")
+            self.page.wait_for_timeout(5000)
+            
+            # Scroll to top
+            print("→ Scrolling to top of page...")
+            self.page.evaluate("window.scrollTo(0, 0)")
+            self.page.wait_for_timeout(2000)
+            
+            # Take screenshot
+            self.page.screenshot(path='screenshot_3_before_webhook.png')
+            print("✓ Screenshot saved: screenshot_3_before_webhook.png")
+            
+            # Look for webhook trigger
+            print("\n→ Looking for webhook element...")
+            webhook_selectors = [
+                "text='Webhook Received'",
+                "div:has-text('Webhook Received')",
+                "button:has-text('Webhook')",
+                "[class*='trigger']"
+            ]
+            
+            webhook_element = None
+            for selector in webhook_selectors:
+                try:
+                    webhook_element = self.page.wait_for_selector(selector, timeout=5000)
+                    if webhook_element:
+                        print(f"✓ Found webhook element: {selector}")
+                        break
+                except:
+                    continue
+            
+            if not webhook_element:
+                print("ERROR: Could not find webhook element")
+                self.page.screenshot(path='screenshot_error_no_webhook.png')
+                return False
+            
+            # Click webhook element
+            print("\n→ Clicking webhook element...")
+            webhook_element.click()
+            self.page.wait_for_timeout(3000)
+            print("✓ Webhook element opened")
+            
+            self.page.screenshot(path='screenshot_4_webhook_opened.png')
+            print("✓ Screenshot saved: screenshot_4_webhook_opened.png")
+            
+            # NEW: Click "Select an option" button to open dropdown
+            print("\n→ Looking for 'Select an option' button...")
+            select_option_selectors = [
+                "button:has-text('Select an option')",
+                "button:has-text('select an option')",
+                "[role='combobox']:has-text('Select')",
+                "button:has-text('Select')"
+            ]
+            
+            select_btn = None
+            for selector in select_option_selectors:
+                try:
+                    select_btn = self.page.wait_for_selector(selector, timeout=5000)
+                    if select_btn:
+                        print(f"✓ Found 'Select an option' button: {selector}")
+                        break
+                except:
+                    continue
+            
+            if select_btn:
+                print("→ Clicking 'Select an option' button...")
+                select_btn.click()
+                self.page.wait_for_timeout(2000)
+                print("✓ Dropdown opened")
+                
+                self.page.screenshot(path='screenshot_4b_dropdown_opened.png')
+                print("✓ Screenshot saved: screenshot_4b_dropdown_opened.png")
+            else:
+                print("→ No 'Select an option' button found, checking if webhook already exists...")
+            
+            # Check if webhook already exists
+            print("\n→ Checking for existing webhook...")
+            existing_url = self.page.query_selector("input[value*='https://']")
+            if existing_url:
+                self.lindy_url = existing_url.input_value()
+                print(f"✓ Found existing webhook URL: {self.lindy_url}")
+            else:
+                # Create new webhook - look for "Create new" button
+                print("→ Creating new webhook...")
+                create_btn_selectors = [
+                    "button:has-text('Create new')",
+                    "button:has-text('Create New')",
+                    "button:has-text('Create Webhook')",
+                    "button:has-text('Create webhook')"
+                ]
+                
+                create_btn = None
+                for selector in create_btn_selectors:
+                    try:
+                        create_btn = self.page.wait_for_selector(selector, timeout=3000)
+                        if create_btn:
+                            print(f"✓ Found create button: {selector}")
+                            break
+                    except:
+                        continue
+                
+                if not create_btn:
+                    print("ERROR: Could not find Create button")
+                    self.page.screenshot(path='screenshot_error_no_create.png')
+                    return False
+                
+                create_btn.click()
+                self.page.wait_for_timeout(2000)
+                print("✓ Clicked Create button (opened dropdown)")
+                
+                # After clicking "Create New", type "webhook" and press Enter
+                print("\n→ Naming the webhook...")
+                print("→ Typing 'webhook' in the dropdown...")
+                self.page.keyboard.type("webhook")
+                self.page.wait_for_timeout(1000)
+                print("✓ Typed 'webhook'")
+                
+                print("→ Pressing Enter to create webhook...")
+                self.page.keyboard.press('Enter')
+                self.page.wait_for_timeout(3000)
+                print("✓ Pressed Enter - webhook should be created")
+                
+                self.page.screenshot(path='screenshot_5_webhook_created.png')
+                print("✓ Screenshot saved: screenshot_5_webhook_created.png")
+                
+                # Click on the newly created webhook to open it
+                print("\n→ Clicking on the newly created webhook...")
+                webhook_selectors = [
+                    "button:has-text('webhook')",
+                    "div:has-text('webhook')",
+                    "[role='button']:has-text('webhook')",
+                    "a:has-text('webhook')"
+                ]
+                
+                webhook_clicked = False
+                for selector in webhook_selectors:
+                    try:
+                        webhook_element = self.page.wait_for_selector(selector, timeout=3000)
+                        if webhook_element:
+                            webhook_element.click()
+                            self.page.wait_for_timeout(2000)
+                            print(f"✓ Clicked on webhook: {selector}")
+                            webhook_clicked = True
+                            break
+                    except:
+                        continue
+                
+                if not webhook_clicked:
+                    print("ERROR: Could not find the webhook to click")
+                    self.page.screenshot(path='screenshot_error_no_webhook.png')
+                    return False
+                
+                # Click the "Copy to clipboard" button to get the webhook URL
+                print("\n→ Clicking 'Copy to clipboard' button...")
+                copy_selectors = [
+                    "button:has-text('Copy to clipboard')",
+                    "button:has-text('Copy')",
+                    "button[title*='Copy']",
+                    "[aria-label*='Copy']"
+                ]
+                
+                copy_clicked = False
+                for selector in copy_selectors:
+                    try:
+                        copy_btn = self.page.wait_for_selector(selector, timeout=3000)
+                        if copy_btn:
+                            copy_btn.click()
+                            self.page.wait_for_timeout(1000)
+                            print(f"✓ Clicked copy button: {selector}")
+                            copy_clicked = True
+                            break
+                    except:
+                        continue
+                
+                if not copy_clicked:
+                    print("ERROR: Could not find 'Copy to clipboard' button")
+                    self.page.screenshot(path='screenshot_error_no_copy.png')
+                    return False
+                
+                # Get the URL from clipboard using CDP
+                print("\n→ Getting webhook URL from clipboard...")
+                try:
+                    cdp = self.context.new_cdp_session(self.page)
+                    clipboard_data = cdp.send('Runtime.evaluate', {
+                        'expression': 'navigator.clipboard.readText()',
+                        'awaitPromise': True
+                    })
+                    self.lindy_url = clipboard_data['result']['value']
+                    print(f"✓ Got webhook URL from clipboard: {self.lindy_url}")
+                except Exception as e:
+                    print(f"ERROR getting URL from clipboard: {e}")
+                    # Fallback: try to find the URL in the page
+                    try:
+                        url_element = self.page.wait_for_selector("input[value*='https://'], code:has-text('https://'), pre:has-text('https://')", timeout=5000)
+                        if url_element:
+                            self.lindy_url = url_element.text_content() or url_element.input_value()
+                            print(f"✓ Got webhook URL from page: {self.lindy_url}")
+                    except:
+                        print("ERROR: Could not retrieve webhook URL")
+            
+            
+            
+            # Take screenshot before looking for generate secret button
+            self.page.screenshot(path='screenshot_5_5_before_generate.png')
+            print("✓ Screenshot saved: screenshot_5_5_before_generate.png")
+            
+            # STEP 1: Click the first "Generate Secret" button to open the dialog
+            print("\n→ Looking for first Generate Secret button...")
+            
+            # Wait a bit to ensure page is fully loaded
+            self.page.wait_for_timeout(2000)
+            
+            first_generate_selectors = [
+                "button:has-text('Generate Secret')",
+                "button:has-text('Generate secret')",
+                "a:has-text('Generate Secret')",
+                "a:has-text('Generate secret')"
+            ]
+            
+            first_generate_btn = None
+            for selector in first_generate_selectors:
+                try:
+                    first_generate_btn = self.page.wait_for_selector(selector, timeout=3000)
+                    if first_generate_btn:
+                        button_text = first_generate_btn.text_content()
+                        print(f"✓ Found first generate secret button: {selector}")
+                        print(f"→ Button text: '{button_text}'")
+                        first_generate_btn.click()
+                        self.page.wait_for_timeout(3000)
+                        print("✓ Clicked first generate secret button")
+                        
+                        # Take screenshot after clicking first button
+                        self.page.screenshot(path='screenshot_5_6_after_first_generate.png')
+                        print("✓ Screenshot saved: screenshot_5_6_after_first_generate.png")
+                        break
+                except Exception as e:
+                    print(f"→ Error with selector {selector}: {e}")
+                    continue
+            
+            if not first_generate_btn:
+                print("ERROR: Could not find first Generate Secret button")
+                self.page.screenshot(path='screenshot_error_no_first_generate.png')
+                return False
+            
+            # Count existing copy buttons BEFORE clicking second generate button
+            print("\n→ Counting existing copy buttons before generating secret...")
+            existing_copy_buttons = self.page.query_selector_all("button[title*='Copy' i], button[aria-label*='Copy' i]")
+            initial_copy_count = len(existing_copy_buttons)
+            print(f"→ Found {initial_copy_count} copy buttons before secret generation")
+            
+            # STEP 2: Click the second "Generate Secret" button in the dialog/modal
+            print("\n→ Looking for second Generate Secret button in dialog...")
+            
+            # Wait longer for dialog/modal to fully appear and animations to complete
+            self.page.wait_for_timeout(3000)
+            
+            second_generate_selectors = [
+                "div[role='dialog'] button:has-text('Generate Secret')",
+                "div[role='dialog'] button:has-text('Generate secret')",
+                "div[role='dialog'] button:has-text('Generate')",
+                "[role='dialog'] button:has-text('Generate Secret')",
+                "[role='dialog'] button:has-text('Generate secret')",
+                "button:has-text('Generate Secret')",
+                "button:has-text('Generate secret')"
+            ]
+            
+            second_generate_btn = None
+            for selector in second_generate_selectors:
+                try:
+                    # Look for all matching buttons
+                    buttons = self.page.query_selector_all(selector)
+                    print(f"→ Found {len(buttons)} buttons matching: {selector}")
+                    
+                    for btn in buttons:
+                        button_text = btn.text_content()
+                        print(f"→ Button text: '{button_text}'")
+                        
+                        # Click the button if it contains "generate"
+                        if 'generate' in button_text.lower():
+                            second_generate_btn = btn
+                            print(f"✓ Found second generate secret button: {selector}")
+                            
+                            # Try multiple click methods
+                            try:
+                                # Method 1: Force click (ignores overlays)
+                                second_generate_btn.click(force=True)
+                                print("✓ Clicked second generate secret button (force click)")
+                            except Exception as e1:
+                                print(f"→ Force click failed: {e1}")
+                                try:
+                                    # Method 2: JavaScript click
+                                    self.page.evaluate("(element) => element.click()", second_generate_btn)
+                                    print("✓ Clicked second generate secret button (JavaScript click)")
+                                except Exception as e2:
+                                    print(f"→ JavaScript click failed: {e2}")
+                                    # Method 3: Regular click with longer timeout
+                                    second_generate_btn.click(timeout=10000)
+                                    print("✓ Clicked second generate secret button (regular click)")
+                            
+                            self.page.wait_for_timeout(3000)
+                            print("✓ Secret key should now be created!")
+                            
+                            # Take screenshot after clicking second button
+                            self.page.screenshot(path='screenshot_5_7_after_second_generate.png')
+                            print("✓ Screenshot saved: screenshot_5_7_after_second_generate.png")
+                            break
+                    
+                    if second_generate_btn:
+                        break
+                except Exception as e:
+                    print(f"→ Error with selector {selector}: {e}")
+                    continue
+            
+            if not second_generate_btn:
+                print("WARNING: Could not find second Generate Secret button")
+                self.page.screenshot(path='screenshot_error_no_second_generate.png')
+                print("✓ Screenshot saved: screenshot_error_no_second_generate.png")
+            
+            # STEP 3: Wait for NEW copy button to appear and click it
+            print("\n→ Waiting for NEW copy button to appear after secret generation...")
+            
+            # Wait a bit for the new copy button to appear
+            self.page.wait_for_timeout(2000)
+            
+            # Helper function to validate if string is a hex secret
+            def is_hex_secret(value):
+                """Check if value is a hexadecimal secret key (like c8f50ee43017ae1e59be6f1e2c5b1389fc304f6a3ff14a0e7a7735b8f159b300)"""
+                if not value or len(value) < 40:
+                    return False
+                # Check if it's all hexadecimal characters (0-9, a-f)
+                import re
+                return bool(re.match(r'^[0-9a-fA-F]{40,}$', value.strip()))
+            
+            token_copied = False
+            
+            # Look for copy buttons that appeared AFTER clicking generate
+            print("→ Looking for copy buttons with 'Copy to clipboard' tooltip...")
+            copy_button_selectors = [
+                "button[title='Copy to clipboard']",
+                "button[aria-label='Copy to clipboard']",
+                "button[title*='Copy to clipboard' i]",
+                "button[aria-label*='Copy to clipboard' i]"
+            ]
+            
+            for selector in copy_button_selectors:
+                try:
+                    all_copy_buttons = self.page.query_selector_all(selector)
+                    print(f"→ Found {len(all_copy_buttons)} buttons with selector: {selector}")
+                    
+                    # Try buttons that weren't there before (new ones)
+                    for i, copy_btn in enumerate(all_copy_buttons):
+                        try:
+                            is_visible = copy_btn.is_visible()
+                            if not is_visible:
+                                print(f"→ Copy button {i+1} is not visible, skipping")
+                                continue
+                            
+                            # Get the title/aria-label to confirm it's "Copy to clipboard"
+                            title = copy_btn.get_attribute('title') or copy_btn.get_attribute('aria-label') or ''
+                            print(f"→ Copy button {i+1} title: '{title}'")
+                            
+                            print(f"→ Clicking copy button {i+1}...")
+                            copy_btn.click(force=True)
+                            self.page.wait_for_timeout(1500)
+                            print(f"✓ Clicked copy button {i+1}")
+                            
+                            # Get token from clipboard
+                            try:
+                                cdp = self.context.new_cdp_session(self.page)
+                                clipboard_data = cdp.send('Runtime.evaluate', {
+                                    'expression': 'navigator.clipboard.readText()',
+                                    'awaitPromise': True
+                                })
+                                clipboard_value = clipboard_data['result']['value']
+                                
+                                print(f"→ Clipboard contains: {clipboard_value[:60] if clipboard_value else 'empty'}...")
+                                
+                                # Check if this is a hexadecimal secret key (not the webhook URL)
+                                if is_hex_secret(clipboard_value):
+                                    self.auth_token = clipboard_value.strip()
+                                    print(f"✓ Got hex secret token from clipboard: {self.auth_token[:20]}... (length: {len(self.auth_token)})")
+                                    token_copied = True
+                                    break
+                                else:
+                                    print(f"→ Not a hex secret (might be webhook URL, trying next button)")
+                            except Exception as e:
+                                print(f"→ Error getting from clipboard: {e}")
+                        except Exception as e:
+                            print(f"→ Error with copy button {i+1}: {e}")
+                            continue
+                    
+                    if token_copied:
+                        break
+                except Exception as e:
+                    print(f"→ Error with selector {selector}: {e}")
+                    continue
+            
+            # If specific selectors didn't work, try all copy buttons and filter by clipboard content
+            if not token_copied:
+                print("\n→ Trying all copy buttons and checking clipboard content...")
+                all_copy_selectors = [
+                    "button[title*='Copy' i]",
+                    "button[aria-label*='Copy' i]"
+                ]
+                
+                for selector in all_copy_selectors:
+                    try:
+                        all_buttons = self.page.query_selector_all(selector)
+                        print(f"→ Found {len(all_buttons)} total copy buttons")
+                        
+                        # Try buttons starting from the end (newest buttons)
+                        for i in range(len(all_buttons) - 1, -1, -1):
+                            try:
+                                copy_btn = all_buttons[i]
+                                is_visible = copy_btn.is_visible()
+                                if not is_visible:
+                                    continue
+                                
+                                print(f"→ Trying copy button {i+1}...")
+                                copy_btn.click(force=True)
+                                self.page.wait_for_timeout(1500)
+                                
+                                cdp = self.context.new_cdp_session(self.page)
+                                clipboard_data = cdp.send('Runtime.evaluate', {
+                                    'expression': 'navigator.clipboard.readText()',
+                                    'awaitPromise': True
+                                })
+                                clipboard_value = clipboard_data['result']['value']
+                                
+                                print(f"→ Clipboard: {clipboard_value[:60] if clipboard_value else 'empty'}...")
+                                
+                                if is_hex_secret(clipboard_value):
+                                    self.auth_token = clipboard_value.strip()
+                                    print(f"✓ Got hex secret token: {self.auth_token[:20]}... (length: {len(self.auth_token)})")
+                                    token_copied = True
+                                    break
+                            except Exception as e:
+                                print(f"→ Error with button {i+1}: {e}")
+                                continue
+                        
+                        if token_copied:
+                            break
+                    except Exception as e:
+                        print(f"→ Error: {e}")
+                        continue
+            
+            # Last resort: try to read secret directly from page elements
+            if not token_copied:
+                print("\n→ Trying to read secret directly from page elements...")
+                secret_selectors = [
+                    "div[role='dialog'] input[readonly]",
+                    "div[role='dialog'] input[type='text']",
+                    "div[role='dialog'] code",
+                    "div[role='dialog'] pre",
+                    "[role='dialog'] input",
+                    "[role='dialog'] code"
+                ]
+                
+                for selector in secret_selectors:
+                    try:
+                        elements = self.page.query_selector_all(selector)
+                        print(f"→ Found {len(elements)} elements with selector: {selector}")
+                        
+                        for element in elements:
+                            try:
+                                value = element.input_value() if 'input' in selector else element.text_content()
+                                if value:
+                                    print(f"→ Element contains: {value[:60]}...")
+                                    if is_hex_secret(value):
+                                        self.auth_token = value.strip()
+                                        print(f"✓ Got hex secret from element: {self.auth_token[:20]}... (length: {len(self.auth_token)})")
+                                        token_copied = True
+                                        break
+                            except:
+                                continue
+                        
+                        if token_copied:
+                            break
+                    except:
+                        continue
+            
+            if not token_copied:
+                print("WARNING: Could not retrieve hex secret token")
+                self.page.screenshot(path='screenshot_error_no_secret.png')
+                print("✓ Screenshot saved: screenshot_error_no_secret.png")
+                self.auth_token = ""
+            
+            # Close dialog
+            print("\n→ Closing secret dialog...")
+            self.page.keyboard.press('Escape')
+            self.page.wait_for_timeout(1000)
+            print("✓ Closed dialog")
+            
+            return True
+        except Exception as e:
+            print(f"ERROR configuring webhook: {e}")
+            import traceback
+            traceback.print_exc()
+            self.page.screenshot(path='screenshot_error_webhook.png')
+            return False
+
+    
+    def deploy_lindy(self):
+        """Deploy the agent"""
+        print("\n" + "="*70)
+        print("STEP 3: DEPLOYING AGENT")
+        print("="*70)
+        
+        try:
+            print("\n→ Looking for Deploy button...")
+            deploy_btn = self.page.query_selector("button:has-text('Deploy')")
+            if not deploy_btn:
+                print("WARNING: No Deploy button found - may already be deployed")
+                return True
+            
+            print("→ Clicking Deploy button...")
+            deploy_btn.click()
+            self.page.wait_for_timeout(5000)
+            print("✓ Agent deployed!")
+            
+            self.page.screenshot(path='screenshot_7_deployed.png')
+            print("✓ Screenshot saved: screenshot_7_deployed.png")
+            return True
+            
+        except Exception as e:
+            print(f"Note: Deploy: {e}")
+            return True
+    
+    def configure_n8n(self):
+        """Configure N8N"""
+        print("\n" + "="*70)
+        print("STEP 4: CONFIGURING N8N")
+        print("="*70)
+        
+        if not self.lindy_url:
+            print("ERROR: No webhook URL!")
+            return False
+        
+        try:
+            print(f"\n→ Navigating to N8N: {config.N8N_URL}")
+            self.page.goto(config.N8N_URL, wait_until='networkidle', timeout=60000)
+            self.page.wait_for_timeout(5000)
+            print("✓ N8N page loaded")
+            
+            self.page.screenshot(path='screenshot_8_n8n.png')
+            print("✓ Screenshot saved: screenshot_8_n8n.png")
+            
+            # First, let's find all input fields on the page for debugging
+            print("\n→ Looking for input fields on the page...")
+            all_inputs = self.page.query_selector_all("input")
+            print(f"✓ Found {len(all_inputs)} input fields")
+            
+            # Try to identify the Lindy URL input field
+            print("\n→ Locating Lindy URL input field...")
+            lindy_input = None
+            lindy_selectors = [
+                "input[placeholder*='Lindy URL' i]",
+                "input[placeholder*='lindy' i]",
+                "input[name*='lindy' i]",
+                "input[id*='lindy' i]",
+                "input[type='text']",
+                "input[type='url']"
+            ]
+            
+            for selector in lindy_selectors:
+                try:
+                    lindy_input = self.page.wait_for_selector(selector, timeout=3000)
+                    if lindy_input:
+                        print(f"✓ Found Lindy URL input using selector: {selector}")
+                        break
+                except:
+                    continue
+            
+            # If still not found, try to find by position (first input field)
+            if not lindy_input and len(all_inputs) > 0:
+                lindy_input = all_inputs[0]
+                print("✓ Using first input field for Lindy URL")
+            
+            if not lindy_input:
+                print("ERROR: Could not find Lindy URL input field")
+                self.page.screenshot(path='screenshot_error_no_lindy_input.png')
+                return False
+            
+            # Fill Lindy URL
+            print(f"\n→ Entering Lindy URL: {self.lindy_url}")
+            lindy_input.click()
+            self.page.wait_for_timeout(500)
+            self.page.keyboard.press('Control+A')
+            lindy_input.fill(self.lindy_url)
+            self.page.wait_for_timeout(1000)
+            print(f"✓ Entered Lindy URL")
+            
+            # Try to identify the Authorization Token input field
+            print("\n→ Locating Authorization Token input field...")
+            auth_input = None
+            auth_selectors = [
+                "input[placeholder*='Authorization' i]",
+                "input[placeholder*='Token' i]",
+                "input[placeholder*='auth' i]",
+                "input[name*='token' i]",
+                "input[name*='auth' i]",
+                "input[id*='token' i]",
+                "input[id*='auth' i]"
+            ]
+            
+            for selector in auth_selectors:
+                try:
+                    auth_input = self.page.wait_for_selector(selector, timeout=3000)
+                    if auth_input:
+                        print(f"✓ Found Authorization Token input using selector: {selector}")
+                        break
+                except:
+                    continue
+            
+            # If still not found, try second input field
+            if not auth_input and len(all_inputs) > 1:
+                auth_input = all_inputs[1]
+                print("✓ Using second input field for Authorization Token")
+            
+            if auth_input:
+                print(f"\n→ Entering authorization token...")
+                auth_input.click()
+                self.page.wait_for_timeout(500)
+                self.page.keyboard.press('Control+A')
+                auth_input.fill(self.auth_token if self.auth_token else "")
+                self.page.wait_for_timeout(1000)
+                print(f"✓ Entered auth token")
+            else:
+                print("WARNING: Could not find Authorization Token input field")
+            
+            self.page.screenshot(path='screenshot_9_n8n_filled.png')
+            print("✓ Screenshot saved: screenshot_9_n8n_filled.png")
+            
+            # Save
+            print("\n→ Saving configuration...")
+            print("\n→ Saving configuration...")
+            save_btn = self.page.wait_for_selector("button:has-text('Save Configuration'), button:has-text('Save')", timeout=10000)
+            save_btn.scroll_into_view_if_needed()
+            self.page.wait_for_timeout(1000)
+            save_btn.click()
+            self.page.wait_for_timeout(3000)
+            print("✓ Configuration saved!")
+            
+            self.page.screenshot(path='screenshot_10_n8n_saved.png')
+            print("✓ Screenshot saved: screenshot_10_n8n_saved.png")
+            
+            # Start processing
+            print("\n→ Starting processing...")
+            start_btn = self.page.query_selector("button:has-text('Start Processing'), button:has-text('Start')")
+            if start_btn:
+                start_btn.click()
+                self.page.wait_for_timeout(3000)
+                print("✓ Processing started!")
+                
+                self.page.screenshot(path='screenshot_11_n8n_started.png')
+                print("✓ Screenshot saved: screenshot_11_n8n_started.png")
+            
+            return True
+            
+        except Exception as e:
+            print(f"ERROR configuring N8N: {e}")
+            import traceback
+            traceback.print_exc()
+            self.page.screenshot(path='screenshot_error_n8n.png')
+            return False
+    
+    def wait_period(self):
+        """Wait 10 minutes"""
+        print("\n" + "="*70)
+        print("STEP 5: WAITING PERIOD")
+        print("="*70)
+        
+        wait_time = config.WAIT_TIME
+        print(f"\n→ Waiting {wait_time} seconds ({wait_time/60} minutes)...")
+        print("→ Browser will remain open during this time")
+        
+        for i in range(0, wait_time, 60):
+            remaining = wait_time - i
+            print(f"  ⏱  {remaining} seconds remaining...")
+            asyncio.sleep(min(60, remaining))
+        
+        print("✓ Wait complete!")
+        return True
+    
+    def delete_account(self):
+        """Delete Lindy account"""
+        print("\n" + "="*70)
+        print("DELETING ACCOUNT")
+        print("="*70)
+        
+        try:
+            # Navigate directly to settings page
+            print("\n→ Navigating to settings page...")
+            self.page.goto("https://chat.lindy.ai/rileys-workspace-5/settings/general", wait_until='networkidle', timeout=60000)
+            self.page.wait_for_timeout(5000)
+            
+            self.page.screenshot(path='screenshot_12_settings_page.png')
+            print("✓ Navigated to settings page")
+            
+            # Scroll down to find the delete account section
+            print("\n→ Scrolling to find delete account section...")
+            self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            self.page.wait_for_timeout(2000)
+            
+            # Find and click Delete Account button
+            print("\n→ Looking for Delete Account button...")
+            delete_account_btn = None
+            
+            delete_account_selectors = [
+                "button:has-text('Delete Account')",
+                "button:has-text('Delete account')",
+                "//button[contains(text(), 'Delete Account')]",
+                "//button[contains(text(), 'Delete account')]"
+            ]
+            
+            for selector in delete_account_selectors:
+                try:
+                    if selector.startswith("//"):
+                        buttons = self.page.locator(f"xpath={selector}").all()
+                    else:
+                        buttons = self.page.locator(selector).all()
+                    
+                    for btn in buttons:
+                        if btn.is_visible():
+                            text = btn.inner_text()
+                            if 'delete account' in text.lower():
+                                delete_account_btn = btn
+                                print(f"✓ Found Delete Account button with text: {text}")
+                                break
+                    
+                    if delete_account_btn:
+                        break
+                except:
+                    continue
+            
+            if not delete_account_btn:
+                print("ERROR: Could not find Delete Account button")
+                self.page.screenshot(path='screenshot_error_no_delete_account_btn.png')
+                return False
+            
+            # Click the Delete Account button to open the dialog
+            delete_account_btn.click()
+            print("✓ Clicked Delete Account button")
+            
+            # IMPORTANT: Wait for the dialog/modal to appear
+            print("\n→ Waiting for delete account dialog to appear...")
+            self.page.wait_for_timeout(3000)
+            
+            self.page.screenshot(path='screenshot_13_dialog_opened.png')
+            
+            # First, let's identify what elements are in the dialog
+            print("\n→ Identifying elements in the dialog...")
+            
+            # Get all visible text in the dialog
+            try:
+                dialog_text = self.page.locator("body").inner_text()
+                if "Account email" in dialog_text:
+                    print("✓ Found 'Account email' text in dialog")
+                if "Select a reason" in dialog_text:
+                    print("✓ Found 'Select a reason' text in dialog")
+            except:
+                pass
+            
+            # Look for all input fields in the dialog
+            print("\n→ Looking for input fields in dialog...")
+            all_inputs = self.page.locator("input[type='email'], input[type='text']").all()
+            print(f"Found {len(all_inputs)} input fields")
+            
+            for i, inp in enumerate(all_inputs):
+                try:
+                    if inp.is_visible():
+                        placeholder = inp.get_attribute('placeholder')
+                        name = inp.get_attribute('name')
+                        print(f"  Input {i}: placeholder='{placeholder}', name='{name}'")
+                except:
+                    pass
+            
+            # Look for all buttons in the dialog
+            print("\n→ Looking for buttons in dialog...")
+            all_buttons = self.page.locator("button").all()
+            visible_buttons = []
+            for btn in all_buttons:
+                try:
+                    if btn.is_visible():
+                        text = btn.inner_text()
+                        if text.strip():
+                            visible_buttons.append(text.strip())
+                except:
+                    pass
+            print(f"Visible buttons: {visible_buttons}")
+            
+            # Now find and fill the "Account email" field
+            print("\n→ Looking for 'Account email' field...")
+            email_input = None
+            
+            # Strategy 1: Look for input near "Account email" label
+            try:
+                # Find all inputs that are visible
+                inputs = self.page.locator("input").all()
+                for inp in inputs:
+                    if inp.is_visible():
+                        # Check if this input is near "Account email" text
+                        # Try to get the label or nearby text
+                        try:
+                            # Get the parent element and check its text
+                            parent = inp.evaluate_handle("el => el.parentElement")
+                            parent_text = parent.evaluate("el => el.textContent")
+                            
+                            if "account email" in parent_text.lower():
+                                email_input = inp
+                                print("✓ Found Account email input via parent text")
+                                break
+                        except:
+                            pass
+                        
+                        # Check placeholder
+                        try:
+                            placeholder = inp.get_attribute('placeholder')
+                            if placeholder and 'email' in placeholder.lower():
+                                email_input = inp
+                                print(f"✓ Found email input via placeholder: {placeholder}")
+                                break
+                        except:
+                            pass
+            except Exception as e:
+                print(f"Error finding email input: {e}")
+            
+            # Strategy 2: If not found, look for any visible email/text input in a dialog/modal
+            if not email_input:
+                print("→ Trying alternative method: looking for inputs in modal/dialog...")
+                try:
+                    # Look for inputs within a dialog, modal, or overlay
+                    modal_selectors = [
+                        "[role='dialog'] input",
+                        "[role='alertdialog'] input",
+                        ".modal input",
+                        ".dialog input",
+                        "div[class*='modal'] input",
+                        "div[class*='dialog'] input"
+                    ]
+                    
+                    for selector in modal_selectors:
+                        inputs = self.page.locator(selector).all()
+                        if len(inputs) > 0:
+                            for inp in inputs:
+                                if inp.is_visible():
+                                    email_input = inp
+                                    print(f"✓ Found input in modal with selector: {selector}")
+                                    break
+                        if email_input:
+                            break
+                except:
+                    pass
+            
+            # Fill in the email field
+            if email_input:
+                email_input.click()
+                self.page.wait_for_timeout(500)
+                email_input.fill("rileyrmarketing@gmail.com")
+                self.page.wait_for_timeout(1000)
+                print("✓ Filled in email: rileyrmarketing@gmail.com")
+                self.page.screenshot(path='screenshot_14_email_filled.png')
+            else:
+                print("ERROR: Could not find Account email input field")
+                self.page.screenshot(path='screenshot_error_no_email_input.png')
+            
+            # Look for the "Select a reason for deleting your account" dropdown
+            print("\n→ Looking for 'Select a reason' dropdown...")
+            dropdown_btn = None
+            
+            dropdown_selectors = [
+                "button:has-text('Select a reason')",
+                "button:has-text('select a reason')",
+                "[role='combobox']",
+                "//button[contains(text(), 'Select a reason')]",
+                "//button[contains(., 'reason')]",
+                "[role='dialog'] button[role='combobox']",
+                ".modal button[role='combobox']"
+            ]
+            
+            for selector in dropdown_selectors:
+                try:
+                    if selector.startswith("//"):
+                        dropdown_btn = self.page.locator(f"xpath={selector}").first
+                    else:
+                        dropdown_btn = self.page.locator(selector).first
+                    
+                    if dropdown_btn.count() > 0 and dropdown_btn.is_visible():
+                        btn_text = dropdown_btn.inner_text()
+                        print(f"✓ Found dropdown with selector: {selector}, text: '{btn_text}'")
+                        break
+                    dropdown_btn = None
+                except:
+                    continue
+            
+            if dropdown_btn:
+                dropdown_btn.click()
+                self.page.wait_for_timeout(2000)
+                print("✓ Opened reason dropdown")
+                
+                self.page.screenshot(path='screenshot_15_dropdown_open.png')
+                
+                # Select "Too expensive" option
+                print("\n→ Selecting 'Too expensive' option...")
+                expensive_option = None
+                
+                option_selectors = [
+                    "text='Too expensive'",
+                    "text=/Too expensive/i",
+                    "[role='option']:has-text('Too expensive')",
+                    "//div[contains(text(), 'Too expensive')]",
+                    "//li[contains(text(), 'Too expensive')]",
+                    "div:has-text('Too expensive')",
+                    "li:has-text('Too expensive')"
+                ]
+                
+                for selector in option_selectors:
+                    try:
+                        if selector.startswith("//"):
+                            expensive_option = self.page.locator(f"xpath={selector}").first
+                        else:
+                            expensive_option = self.page.locator(selector).first
+                        
+                        if expensive_option.count() > 0 and expensive_option.is_visible():
+                            print(f"✓ Found 'Too expensive' option with selector: {selector}")
+                            break
+                        expensive_option = None
+                    except:
+                        continue
+                
+                if expensive_option:
+                    expensive_option.click()
+                    self.page.wait_for_timeout(1000)
+                    print("✓ Selected 'Too expensive'")
+                    self.page.screenshot(path='screenshot_16_reason_selected.png')
+                else:
+                    print("ERROR: 'Too expensive' option not found")
+                    self.page.screenshot(path='screenshot_error_no_expensive_option.png')
+            else:
+                print("ERROR: Reason dropdown not found")
+                self.page.screenshot(path='screenshot_error_no_dropdown.png')
+            
+            # Find and click the final Delete button (not "Delete Account")
+            print("\n→ Looking for final Delete button...")
+            delete_btn = None
+            
+            # Wait a bit to ensure the button is enabled
+            self.page.wait_for_timeout(1000)
+            
+            # Look for Delete button in the dialog
+            delete_selectors = [
+                "[role='dialog'] button:has-text('Delete')",
+                ".modal button:has-text('Delete')",
+                "button:has-text('Delete'):not(:has-text('Account'))",
+                "//button[text()='Delete']",
+                "//div[@role='dialog']//button[contains(text(), 'Delete')]"
+            ]
+            
+            for selector in delete_selectors:
+                try:
+                    if selector.startswith("//"):
+                        buttons = self.page.locator(f"xpath={selector}").all()
+                    else:
+                        buttons = self.page.locator(selector).all()
+                    
+                    for btn in buttons:
+                        if btn.is_visible():
+                            text = btn.inner_text()
+                            # Make sure it's just "Delete" and not "Delete Account"
+                            if text.strip().lower() == 'delete':
+                                delete_btn = btn
+                                print(f"✓ Found Delete button with text: '{text}'")
+                                break
+                    
+                    if delete_btn:
+                        break
+                except:
+                    continue
+            
+            if delete_btn:
+                delete_btn.click()
+                self.page.wait_for_timeout(3000)
+                print("✓ Clicked Delete button")
+                self.page.screenshot(path='screenshot_17_deleted.png')
+            else:
+                print("ERROR: Final Delete button not found")
+                self.page.screenshot(path='screenshot_error_no_delete_btn.png')
+            
+            print("\n✓ Account deletion process completed!")
+            return True
+            
+        except Exception as e:
+            print(f"Error deleting account: {e}")
+            import traceback
+            traceback.print_exc()
+            self.page.screenshot(path='screenshot_error_delete.png')
+            return False
+
+    def run(self):
+        """Run the automation"""
+        try:
+            print("\n→ Starting automation with visible browser...")
+            
+            # Setup browser
+            self.setup(use_saved_session=True)
+            
+            # Check if logged in
+            if not self.check_login_status():
+                print("\n→ Not logged in. Need to establish session...")
+                # self.manual_login_prompt() # Not needed with cookie auth
+                
+                # Verify login worked
+                if not self.check_login_status():
+                    print("\n!!! Still not logged in. Aborting.")
+                    print("!!! Browser will remain open for inspection.")
+                    import time; time.sleep(3600)  # Keep open for 1 hour
+                    return False
+            
+            # Run the automation steps
+            if not self.add_template():
+                print("\n!!! Failed to add template")
+                print("!!! Browser will remain open for inspection.")
+                import time; time.sleep(3600)
+                return False
+            
+            if not self.configure_webhook():
+                print("\n!!! Failed to configure webhook")
+                print("!!! Browser will remain open for inspection.")
+                import time; time.sleep(3600)
+                return False
+            
+            self.deploy_lindy()
+            
+            if not self.configure_n8n():
+                print("\n!!! Failed to configure N8N")
+                print("!!! Browser will remain open for inspection.")
+                import time; time.sleep(3600)
+                return False
+            
+            self.wait_period()
+            
+            self.delete_account()
+            
+            print("\n" + "="*70)
+            print("✓✓✓ AUTOMATION COMPLETED SUCCESSFULLY! ✓✓✓")
+            print("="*70)
+            print("\n→ Browser will remain open so you can review the results")
+            print("→ Press Ctrl+C to close when done")
+            
+            # Keep browser open indefinitely
+            import time; time.sleep(3600)  # Wait 1 hour before auto-closing
+            return True
+            
+        except KeyboardInterrupt:
+            print("\n\n→ Keyboard interrupt detected")
+            print("→ Closing browser...")
+            return False
+        except Exception as e:
+            print(f"\n!!! Automation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            print("\n→ Browser will remain open for inspection")
+            import time; time.sleep(3600)
+            return False
+        finally:
+            # Cleanup
+            print("\n→ Cleaning up...")
+            try:
+                if self.page:
+                    self.page.close()
+                if self.context:
+                    self.context.close()
+                if self.browser:
+                    self.browser.close()
+                if self.playwright:
+                    self.playwright.stop()
+                print("✓ Browser closed")
+            except Exception as e:
+                print(f"Note during cleanup: {e}")
+
+
+def main():
+    """Main entry point"""
+    print("\n" + "="*70)
+    print("Lindy Automation - Headed Mode (Visible Browser)")
+    print("Browser will stay open throughout the entire process")
+    print("="*70 + "\n")
+    
+    automation = LindyAutomationPlaywright()
+    automation.run()
+
 
 if __name__ == "__main__":
-    try:
-        run_automation()
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    main()
