@@ -79,15 +79,15 @@ class LindyAutomationPlaywright:
         # Create context with larger viewport
         self.context = self.browser.new_context(
             viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            storage_state=storage_state,
+            permissions=["clipboard-read", "clipboard-write"]  # Grant clipboard permissions
+        )
         
         # Add cookies to context for authentication
         if hasattr(self, 'cookies_to_load') and self.cookies_to_load:
             self.context.add_cookies(self.cookies_to_load)
-            print(f"✓ Added {len(self.cookies_to_load)} cookies to browser context") AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            storage_state=storage_state,
-            permissions=["clipboard-read", "clipboard-write"]  # Grant clipboard permissions
-        )
+            print(f"✓ Added {len(self.cookies_to_load)} cookies to browser context")
         
         self.page = self.context.new_page()
         
